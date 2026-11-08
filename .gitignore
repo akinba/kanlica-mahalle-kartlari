@@ -4,3 +4,4 @@ dist
 *.local
 tsconfig.tsbuildinfo
 .agents
+.vite
