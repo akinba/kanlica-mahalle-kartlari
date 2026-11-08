@@ -116,10 +116,14 @@ export interface H3CellProperties {
   h3Index: string;
   neighborhoodId: string;
   neighborhoodName: string;
+  primaryNeighborhood: string;
+  neighborhoodNames: string[]; // array of neighborhood names overlapping/covering this border/core cell
   zone: NeighborhoodZone;
   zoneLabel: string;
+  zones: string[]; // zones of covering neighborhoods
   year: SurveyYear;
-  population: number;
+  population: number; // legacy cell population
+  totalPopulation: number;
   konturPopulation: number; // Kontur HDX 400m H3 population count
   konturDensityPerKm2: number; // Population per km² within the H3 cell
   konturPopulationDensity?: number; // Kontur population density per km² (alias for map layers)
@@ -134,6 +138,8 @@ export interface H3CellProperties {
   healthAccessMin: number;
   educationAccessMin: number;
   summerPopEstimate: number;
+  seasonalWorkersEst: number;
+  socialAidHouseholdsEst: number;
   isCoreCell: boolean;
   dataSource?: 'kontur_hdx_2023' | 'kandira_adnks_cbs' | 'kontur_custom_upload';
 }

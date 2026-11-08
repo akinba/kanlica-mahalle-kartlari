@@ -315,7 +315,7 @@ export function App() {
                   }`}
                 >
                   <MapIcon className="w-4 h-4" />
-                  <span>H3 Altıgen Harita</span>
+                  <span>Harita</span>
                 </button>
 
                 <button

@@ -167,7 +167,7 @@ export function generateKandiraH3GeoJSON(
   year: SurveyYear = 2025,
   resolution: 7 | 8 = 8,
   weights: VulnerabilityWeights = DEFAULT_VULNERABILITY_WEIGHTS,
-  coverageMode: H3CoverageMode = 'mahalle_catchment',
+  coverageMode: H3CoverageMode = 'kontur_full',
   customKonturMap?: ReadonlyMap<string, number>
 ): FeatureCollection<Polygon, H3CellProperties> {
   if (neighborhoods.length === 0) {
@@ -348,6 +348,39 @@ export function generateKandiraH3GeoJSON(
       ? 'kontur_hdx_2023'
       : 'kandira_adnks_cbs';
 
+    // Calculate distance to all neighborhoods to detect overlapping/border neighborhoods
+    const [cellLat, cellLng] = cellToLatLng(h3Index);
+    const distances = neighborhoods.map((n) => {
+      const [nLng, nLat] = n.coordinates;
+      const dKm = greatCircleDistance([nLat, nLng], [cellLat, cellLng], UNITS.km);
+      return { n, dKm };
+    });
+    distances.sort((a, b) => a.dKm - b.dKm);
+
+    const closestDist = distances[0].dKm;
+    const overlapping = distances.filter((item, idx) => {
+      if (idx === 0) return true;
+      if (item.n.id === neighborhood.id) return true;
+      const diffKm = item.dKm - closestDist;
+      return (diffKm <= 1.8 && item.dKm <= 4.8) || (item.dKm <= closestDist * 1.5 && item.dKm <= 3.8);
+    });
+
+    const neighborhoodNames = Array.from(
+      new Set([neighborhood.name, ...overlapping.map((o) => o.n.name)])
+    );
+    const zones = Array.from(
+      new Set([neighborhood.zone, ...overlapping.map((o) => o.n.zone)])
+    );
+
+    const seasonalWorkersEst = Math.max(
+      0,
+      Math.round(neighborhood.vulnerableGroups.seasonalAgriculturalWorkers * cellShare)
+    );
+    const socialAidHouseholdsEst = Math.max(
+      0,
+      Math.round(neighborhood.vulnerableGroups.socialAssistanceHouseholds * cellShare)
+    );
+
     // cellToBoundary(h3Index, true) returns [lng, lat][] vertices for GeoJSON
     const rawCoords = cellToBoundary(h3Index, true);
     const boundaryCoords =
@@ -366,10 +399,14 @@ export function generateKandiraH3GeoJSON(
         h3Index,
         neighborhoodId: neighborhood.id,
         neighborhoodName: neighborhood.name,
+        primaryNeighborhood: neighborhood.name,
+        neighborhoodNames,
         zone: neighborhood.zone,
         zoneLabel: neighborhood.zoneLabel,
+        zones,
         year,
         population: cellPopulation,
+        totalPopulation: cellPopulation,
         konturPopulation,
         konturDensityPerKm2,
         konturPopulationDensity: konturDensityPerKm2,
@@ -386,6 +423,8 @@ export function generateKandiraH3GeoJSON(
           ? yearData.educationAccessMin
           : yearData.educationAccessMin + 2,
         summerPopEstimate: cellSummerPop,
+        seasonalWorkersEst,
+        socialAidHouseholdsEst,
         isCoreCell,
         dataSource,
       },

@@ -3,12 +3,6 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {
   Layers,
-  Box,
-  Compass,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-  Hexagon,
   MapPin,
   ExternalLink,
   Activity,
@@ -20,16 +14,21 @@ import {
   Sun,
   Eye,
   EyeOff,
-  Globe,
-  Cpu,
   Database,
   Download,
   Upload,
   CheckCircle2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Filter,
+  Trees,
+  Wheat,
+  Hexagon,
+  UserCheck,
 } from 'lucide-react';
 import {
   H3CellProperties,
-  H3CoverageMode,
   NeighborhoodData,
   SurveyYear,
   VulnerabilityWeights,
@@ -52,10 +51,10 @@ export interface H3MapViewProps {
 
 export type H3ThematicLayer =
   | 'konturPopulation'
-  | 'konturPopulationDensity'
   | 'vulnerabilityScore'
   | 'popChange5YrPct'
   | 'elderlyPct'
+  | 'builtUpPct'
   | 'builtUpChange5YrPct'
   | 'healthAccessMin'
   | 'educationAccessMin'
@@ -133,7 +132,7 @@ const LAYER_CONFIGS: Record<H3ThematicLayer, LayerConfig> = {
     shortLabel: 'Kontur Nüfus',
     unit: 'kişi / hücre',
     description:
-      'HDX Kontur Population Türkiye (GHSL + HRSL + Microsoft Bina + OSM) H3 altıgen nüfus dağılımı',
+      'HDX Kontur Population Türkiye (GHSL + HRSL + Microsoft Bina + OSM) 400m H3 altıgen nüfus dağılımı',
     icon: <Database className="w-3.5 h-3.5" />,
     stops: [
       { value: 15, color: '#0ea5e9', label: 'Seyrek (<20)' },
@@ -142,22 +141,6 @@ const LAYER_CONFIGS: Record<H3ThematicLayer, LayerConfig> = {
       { value: 1400, color: '#e11d48', label: 'Merkez (1.400+)' },
     ],
     formatValue: (v) => `${Math.round(v).toLocaleString('tr-TR')} kişi`,
-  },
-  konturPopulationDensity: {
-    id: 'konturPopulationDensity',
-    label: 'Kontur Nüfus Yoğunluğu (kişi/km²)',
-    shortLabel: 'Kontur Yoğunluk',
-    unit: 'kişi/km²',
-    description:
-      'HDX Kontur Population Türkiye 400m H3 altıgen alanı başına düşen km² nüfus yoğunluğu',
-    icon: <Database className="w-3.5 h-3.5" />,
-    stops: [
-      { value: 20, color: '#0ea5e9', label: 'Seyrek (<30)' },
-      { value: 160, color: '#10b981', label: 'Orta (160)' },
-      { value: 600, color: '#f59e0b', label: 'Yoğun (600)' },
-      { value: 1900, color: '#e11d48', label: 'Merkez (1.900+)' },
-    ],
-    formatValue: (v) => `${Math.round(v).toLocaleString('tr-TR')} kişi/km²`,
   },
   vulnerabilityScore: {
     id: 'vulnerabilityScore',
@@ -204,18 +187,33 @@ const LAYER_CONFIGS: Record<H3ThematicLayer, LayerConfig> = {
     ],
     formatValue: (v) => `%${v.toFixed(1)}`,
   },
-  builtUpChange5YrPct: {
-    id: 'builtUpChange5YrPct',
-    label: 'Arazi & Yapılaşma Artışı (5 Yıl %)',
-    shortLabel: 'Yapılaşma Artışı',
+  builtUpPct: {
+    id: 'builtUpPct',
+    label: 'Yapılaşma & Geçirimsiz Alan Payı (%)',
+    shortLabel: 'Yapılaşma (%)',
     unit: '%',
-    description: '2021–2025 arası geçirimsiz yüzey, yeni konut ve kıyı imar baskısı değişimi',
+    description: 'H3 altıgen hücresindeki konut, ticari ve geçirimsiz yüzey oranı',
     icon: <Building2 className="w-3.5 h-3.5" />,
     stops: [
-      { value: 5, color: '#22c55e', label: 'Korunan (<%8)' },
+      { value: 6, color: '#10b981', label: 'Doğal/Kırsal (<%8)' },
       { value: 18, color: '#eab308', label: 'Ilımlı (%18)' },
-      { value: 32, color: '#f97316', label: 'Yoğun (%32)' },
-      { value: 45, color: '#dc2626', label: 'Kıyı Baskısı (%45+)' },
+      { value: 35, color: '#f97316', label: 'Yoğun (%35)' },
+      { value: 65, color: '#dc2626', label: 'Kentsel/Kıyı Baskısı (%65+)' },
+    ],
+    formatValue: (v) => `%${v.toFixed(1)}`,
+  },
+  builtUpChange5YrPct: {
+    id: 'builtUpChange5YrPct',
+    label: 'Yapılaşma Artışı (5 Yıl %)',
+    shortLabel: 'Yapılaşma Δ (5 Yıl)',
+    unit: '%',
+    description: '2021–2025 arası konut ve geçirimsiz yüzey artış oranı',
+    icon: <Building2 className="w-3.5 h-3.5" />,
+    stops: [
+      { value: 5, color: '#10b981', label: 'Korunan (<%8)' },
+      { value: 18, color: '#eab308', label: 'Ilımlı (%18)' },
+      { value: 35, color: '#f97316', label: 'Yoğun (%35)' },
+      { value: 65, color: '#dc2626', label: 'Hızlı (%65+)' },
     ],
     formatValue: (v) => `+%${v.toFixed(1)}`,
   },
@@ -283,75 +281,72 @@ function buildColorExpression(layer: H3ThematicLayer): maplibregl.ExpressionSpec
   ];
 }
 
-function buildExtrusionHeightExpression(
-  layer: H3ThematicLayer,
-  is3DMode: boolean
-): maplibregl.ExpressionSpecification | number {
-  if (!is3DMode) return 0;
-  const stops = LAYER_CONFIGS[layer].stops;
-  return [
-    'interpolate',
-    ['linear'],
-    ['max', stops[0].value, ['to-number', ['get', layer], 0]],
-    stops[0].value,
-    60,
-    stops[1].value,
-    450,
-    stops[2].value,
-    1150,
-    stops[3].value,
-    2200,
-  ];
-}
-
-// Geographic bounding box for Kandıra SVG Cartographic Studio
-const BOUNDS = {
-  minLng: 30.01,
-  maxLng: 30.40,
-  minLat: 40.94,
-  maxLat: 41.215,
-};
-
-const SVG_WIDTH = 1000;
-const SVG_HEIGHT = 680;
-
-function projectLngLat([lng, lat]: [number, number]): [number, number] {
-  const x = ((lng - BOUNDS.minLng) / (BOUNDS.maxLng - BOUNDS.minLng)) * SVG_WIDTH;
-  const y = ((BOUNDS.maxLat - lat) / (BOUNDS.maxLat - BOUNDS.minLat)) * SVG_HEIGHT;
-  return [Number(x.toFixed(1)), Number(y.toFixed(1))];
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const clean = hex.replace('#', '');
-  const num = parseInt(clean, 16);
-  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
-function getInterpolatedColor(value: number, layer: H3ThematicLayer): string {
-  const stops = LAYER_CONFIGS[layer].stops;
-  if (value <= stops[0].value) return stops[0].color;
-  if (value >= stops[stops.length - 1].value) return stops[stops.length - 1].color;
-
-  for (let i = 0; i < stops.length - 1; i++) {
-    const start = stops[i];
-    const end = stops[i + 1];
-    if (value >= start.value && value <= end.value) {
-      const ratio = (value - start.value) / Math.max(0.0001, end.value - start.value);
-      const [r1, g1, b1] = hexToRgb(start.color);
-      const [r2, g2, b2] = hexToRgb(end.color);
-      return rgbToHex(
-        r1 + (r2 - r1) * ratio,
-        g1 + (g2 - g1) * ratio,
-        b1 + (b2 - b1) * ratio
-      );
+function parseCellProperties(props: Record<string, unknown>): H3CellProperties {
+  let neighborhoodNames: string[] = [];
+  if (Array.isArray(props.neighborhoodNames)) {
+    neighborhoodNames = props.neighborhoodNames as string[];
+  } else if (typeof props.neighborhoodNames === 'string') {
+    try {
+      neighborhoodNames = JSON.parse(props.neighborhoodNames);
+    } catch {
+      neighborhoodNames = [String(props.neighborhoodNames)];
     }
+  } else if (props.neighborhoodName) {
+    neighborhoodNames = [String(props.neighborhoodName)];
   }
-  return stops[0].color;
+
+  let zones: string[] = [];
+  if (Array.isArray(props.zones)) {
+    zones = props.zones as string[];
+  } else if (typeof props.zones === 'string') {
+    try {
+      zones = JSON.parse(props.zones);
+    } catch {
+      zones = [String(props.zones)];
+    }
+  } else if (props.zone) {
+    zones = [String(props.zone)];
+  }
+
+  const primaryNeighborhood = String(
+    props.primaryNeighborhood || props.neighborhoodName || ''
+  );
+
+  return {
+    fid: Number(props.fid || 0),
+    h3: String(props.h3 || props.h3Index || ''),
+    h3Index: String(props.h3Index || props.h3 || ''),
+    neighborhoodId: String(props.neighborhoodId || ''),
+    neighborhoodName: String(props.neighborhoodName || primaryNeighborhood),
+    primaryNeighborhood,
+    neighborhoodNames: neighborhoodNames.length > 0 ? neighborhoodNames : [primaryNeighborhood],
+    zone: (props.zone as any) || 'merkez',
+    zoneLabel: String(props.zoneLabel || ''),
+    zones: zones.length > 0 ? zones : [(props.zone as any) || 'merkez'],
+    year: (Number(props.year || 2025) as SurveyYear),
+    population: Number(props.population || props.totalPopulation || 0),
+    totalPopulation: Number(props.totalPopulation || props.population || 0),
+    konturPopulation: Number(props.konturPopulation || 0),
+    konturDensityPerKm2: Number(props.konturDensityPerKm2 || 0),
+    konturPopulationDensity: Number(
+      props.konturPopulationDensity ?? props.konturDensityPerKm2 ?? 0
+    ),
+    popChange5YrPct: Number(props.popChange5YrPct || 0),
+    elderlyPct: Number(props.elderlyPct || 0),
+    youthPct: Number(props.youthPct || 0),
+    vulnerabilityScore: Number(props.vulnerabilityScore || 0),
+    builtUpPct: Number(props.builtUpPct || 0),
+    builtUpChange5YrPct: Number(props.builtUpChange5YrPct || 0),
+    forestPct: Number(props.forestPct || 0),
+    agriculturePct: Number(props.agriculturePct || 0),
+    healthAccessMin: Number(props.healthAccessMin || 0),
+    educationAccessMin: Number(props.educationAccessMin || 0),
+    summerPopEstimate: Number(props.summerPopEstimate || 0),
+    seasonalWorkersEst: Number(props.seasonalWorkersEst || 0),
+    socialAidHouseholdsEst: Number(props.socialAidHouseholdsEst || 0),
+    isCoreCell: Boolean(props.isCoreCell),
+    dataSource: props.dataSource as any,
+  };
 }
 
 export const H3MapView: React.FC<H3MapViewProps> = ({
@@ -362,15 +357,17 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
   onSelectNeighborhood,
   onOpenDetailDrawer,
 }) => {
-  const [activeLayer, setActiveLayer] = useState<H3ThematicLayer>('vulnerabilityScore');
-  const [resolution, setResolution] = useState<7 | 8>(8);
-  const [coverageMode, setCoverageMode] = useState<H3CoverageMode>('kontur_full');
-  const [is3D, setIs3D] = useState<boolean>(false);
+  const [activeLayer, setActiveLayer] = useState<H3ThematicLayer>('konturPopulation');
   const [showLabels, setShowLabels] = useState<boolean>(true);
-  // Default to WebGL (MapLibre GL) with 100% keyless open-source tile servers (CARTO / OSM)
-  const [basemapMode, setBasemapMode] = useState<'vector' | 'webgl'>('webgl');
   const [tileStyle, setTileStyle] = useState<WebglTileStyle>('voyager');
-  const [webglReady, setWebglReady] = useState<boolean>(true);
+
+  // Kontur resolution (defaults to 8: 400m H3 micro grid)
+  const [resolution, setResolution] = useState<7 | 8>(8);
+  // Pure 2D top-down view ("2B görünürlük yeterli, 3B ye gerek yok")
+  const [is3D, setIs3D] = useState<boolean>(false);
+
+  // Filter H3 cells by neighborhood (border cells with matching neighborhood in neighborhoodNames array are included!)
+  const [selectedMahalleFilter, setSelectedMahalleFilter] = useState<string>('all');
 
   // Custom uploaded Kontur GeoJSON dataset state
   const [customKonturMap, setCustomKonturMap] = useState<ReadonlyMap<string, number> | undefined>(
@@ -383,29 +380,41 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Hovered or pinned H3 cell properties
+  // Hovered or clicked cell state for telemetry inspector HUD
   const [hoveredCell, setHoveredCell] = useState<H3CellProperties | null>(null);
-
-  // SVG Pan/Zoom state
-  const [zoom, setZoom] = useState<number>(1);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [clickedCell, setClickedCell] = useState<H3CellProperties | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
+  const tooltipRef = useRef<maplibregl.Popup | null>(null);
 
-  // Generate H3 GeoJSON FeatureCollection dynamically
+  // Generate full Kontur 400m (Res-8) H3 GeoJSON FeatureCollection across Kandıra
   const h3GeoJSON = useMemo(() => {
     return generateKandiraH3GeoJSON(
       neighborhoods,
       selectedYear,
-      resolution,
+      resolution, // Resolution 8: 400m Kontur H3 Hexagon (or Res 7 macro)
       weights,
-      coverageMode,
+      'kontur_full', // Base spatial foundation across entire Kandıra
       customKonturMap
     );
-  }, [neighborhoods, selectedYear, resolution, weights, coverageMode, customKonturMap]);
+  }, [neighborhoods, selectedYear, resolution, weights, customKonturMap]);
+
+  // Filtered H3 cells based on selectedMahalleFilter
+  // Border hexagons overlapping multiple neighborhoods have neighborhoodNames: string[]
+  // and are included whenever any of their constituent neighborhoods is selected!
+  const displayedH3GeoJSON = useMemo(() => {
+    if (selectedMahalleFilter === 'all') {
+      return h3GeoJSON;
+    }
+    return {
+      type: 'FeatureCollection' as const,
+      features: h3GeoJSON.features.filter((f) => {
+        const names = f.properties.neighborhoodNames || [f.properties.neighborhoodName];
+        return names.includes(selectedMahalleFilter);
+      }),
+    };
+  }, [h3GeoJSON, selectedMahalleFilter]);
 
   // Neighborhood centroids GeoJSON for WebGL markers & labels
   const neighborhoodPinsGeoJSON = useMemo(() => {
@@ -417,7 +426,9 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
         properties: {
           id: n.id,
           name: n.name.replace(' (Kerpe)', ''),
-          isSelected: selectedNeighborhood?.id === n.id,
+          isSelected:
+            selectedNeighborhood?.id === n.id ||
+            selectedMahalleFilter === n.name,
         },
         geometry: {
           type: 'Point' as const,
@@ -425,11 +436,11 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
         },
       })),
     };
-  }, [neighborhoods, selectedNeighborhood]);
+  }, [neighborhoods, selectedNeighborhood, selectedMahalleFilter]);
 
-  // Compute summary stats for legend
+  // Compute summary stats for legend & telemetry
   const h3Stats = useMemo(() => {
-    const features = h3GeoJSON.features;
+    const features = displayedH3GeoJSON.features;
     const totalCells = features.length;
     let coreCells = 0;
     let sumMetric = 0;
@@ -449,33 +460,33 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
     return {
       totalCells,
       coreCells,
-      ringCells: totalCells - coreCells,
+      borderCells: totalCells - coreCells,
       avgVal: totalCells > 0 ? sumMetric / totalCells : 0,
       totalKonturPop: sumKonturPop,
       minVal: minVal === Infinity ? 0 : minVal,
       maxVal: maxVal === -Infinity ? 0 : maxVal,
     };
-  }, [h3GeoJSON, activeLayer]);
+  }, [displayedH3GeoJSON, activeLayer]);
 
-  // Active inspected cell: either hovered cell, or the core cell of selectedNeighborhood
+  // Active inspected cell: hoveredCell -> clickedCell -> selectedNeighborhood's core cell
   const inspectedCell = useMemo<H3CellProperties | null>(() => {
     if (hoveredCell) return hoveredCell;
+    if (clickedCell) return clickedCell;
     if (selectedNeighborhood) {
       const found = h3GeoJSON.features.find(
         (f) =>
-          f.properties.neighborhoodId === selectedNeighborhood.id &&
+          (f.properties.neighborhoodId === selectedNeighborhood.id ||
+            f.properties.neighborhoodName === selectedNeighborhood.name) &&
           f.properties.isCoreCell
       );
       if (found) return found.properties;
     }
-    return null;
-  }, [hoveredCell, selectedNeighborhood, h3GeoJSON]);
+    return h3GeoJSON.features[0]?.properties || null;
+  }, [hoveredCell, clickedCell, selectedNeighborhood, h3GeoJSON]);
 
-  // Initialize / update MapLibre GL when basemapMode === 'webgl'
+  // Initialize WebGL MapLibre GL instance in pure 2D mode (pitch: 0, no 3D extrusion)
   useEffect(() => {
-    if (basemapMode !== 'webgl' || !mapContainerRef.current) {
-      return;
-    }
+    if (!mapContainerRef.current) return;
 
     const activeTileCfg = WEBGL_TILE_STYLES[tileStyle];
     let map: maplibregl.Map | null = null;
@@ -512,35 +523,45 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           ],
         },
         center: [30.185, 41.078],
-        zoom: 10.2,
-        pitch: is3D ? 48 : 0,
-        bearing: is3D ? -12 : 0,
+        zoom: 10.3,
+        pitch: 0, // 2D top-down view (no 3D tilt)
+        bearing: 0,
+        dragRotate: false,
+        pitchWithRotate: false,
+        touchPitch: false,
         failIfMajorPerformanceCaveat: false,
       });
 
       mapInstanceRef.current = map;
-      setWebglReady(true);
+
+      // Cursor popup tooltip
+      tooltipRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 12,
+      });
 
       map.on('load', () => {
         if (!map) return;
 
+        // Add 2D H3 GeoJSON Source
         map.addSource('kandira-h3', {
           type: 'geojson',
-          data: h3GeoJSON as unknown as GeoJSON.FeatureCollection,
+          data: displayedH3GeoJSON as unknown as GeoJSON.FeatureCollection,
         });
 
+        // 2D Polygon Fill Layer
         map.addLayer({
-          id: 'h3-extrusion',
-          type: 'fill-extrusion',
+          id: 'h3-fill',
+          type: 'fill',
           source: 'kandira-h3',
           paint: {
-            'fill-extrusion-color': buildColorExpression(activeLayer),
-            'fill-extrusion-height': buildExtrusionHeightExpression(activeLayer, is3D),
-            'fill-extrusion-base': 0,
-            'fill-extrusion-opacity': 0.82,
+            'fill-color': buildColorExpression(activeLayer),
+            'fill-opacity': 0.82,
           },
         });
 
+        // 2D Hexagon Outline Layer
         map.addLayer({
           id: 'h3-outline',
           type: 'line',
@@ -556,13 +577,13 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
               'case',
               ['boolean', ['get', 'isCoreCell'], false],
               1.6,
-              0.75,
+              0.8,
             ],
-            'line-opacity': 0.78,
+            'line-opacity': 0.82,
           },
         });
 
-        // Add neighborhood pins & labels source and layers in WebGL mode
+        // Add neighborhood pins & labels
         map.addSource('kandira-neighborhood-pins', {
           type: 'geojson',
           data: neighborhoodPinsGeoJSON as unknown as GeoJSON.FeatureCollection,
@@ -612,46 +633,60 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           },
         });
 
-        map.on('mousemove', 'h3-extrusion', (e) => {
+        // Hover events on 2D H3 fill
+        map.on('mousemove', 'h3-fill', (e) => {
           if (!e.features || e.features.length === 0) return;
           map!.getCanvas().style.cursor = 'pointer';
-          const props = e.features[0].properties as unknown as H3CellProperties;
-          if (props && props.h3Index) {
-            setHoveredCell({
-              ...props,
-              h3: String(props.h3 || props.h3Index),
-              population: Number(props.population),
-              konturPopulation: Number(props.konturPopulation ?? props.population),
-              konturDensityPerKm2: Number(props.konturDensityPerKm2 ?? 0),
-              konturPopulationDensity: Number(
-                props.konturPopulationDensity ?? props.konturDensityPerKm2 ?? 0
-              ),
-              popChange5YrPct: Number(props.popChange5YrPct),
-              elderlyPct: Number(props.elderlyPct),
-              youthPct: Number(props.youthPct),
-              vulnerabilityScore: Number(props.vulnerabilityScore),
-              builtUpPct: Number(props.builtUpPct),
-              builtUpChange5YrPct: Number(props.builtUpChange5YrPct),
-              forestPct: Number(props.forestPct),
-              agriculturePct: Number(props.agriculturePct),
-              healthAccessMin: Number(props.healthAccessMin),
-              educationAccessMin: Number(props.educationAccessMin),
-              summerPopEstimate: Number(props.summerPopEstimate),
-              isCoreCell: Boolean(props.isCoreCell),
-            });
+          const rawProps = e.features[0].properties as Record<string, unknown>;
+          const parsed = parseCellProperties(rawProps);
+          setHoveredCell(parsed);
+
+          // Fast cursor tooltip
+          const coord = e.lngLat;
+          const metricVal = parsed[activeLayer];
+          const formattedVal = LAYER_CONFIGS[activeLayer].formatValue(
+            Number(metricVal ?? 0)
+          );
+          const namesStr = parsed.neighborhoodNames.join(', ');
+
+          if (tooltipRef.current) {
+            tooltipRef.current
+              .setLngLat(coord)
+              .setHTML(
+                `<div style="font-family:sans-serif; font-size:11px; padding:3px 6px; color:#0f172a;">` +
+                  `<strong>${parsed.primaryNeighborhood}</strong>` +
+                  (parsed.neighborhoodNames.length > 1
+                    ? `<div style="font-size:9.5px; color:#64748b; margin-top:1px;">Sınır Altıgeni: ${namesStr}</div>`
+                    : '') +
+                  `<div style="font-size:10.5px; font-weight:700; color:#0284c7; margin-top:2px;">` +
+                  `${LAYER_CONFIGS[activeLayer].shortLabel}: ${formattedVal}` +
+                  `</div>` +
+                  `</div>`
+              )
+              .addTo(map!);
           }
         });
 
-        map.on('mouseleave', 'h3-extrusion', () => {
+        map.on('mouseleave', 'h3-fill', () => {
           if (!map) return;
           map.getCanvas().style.cursor = '';
           setHoveredCell(null);
+          if (tooltipRef.current) {
+            tooltipRef.current.remove();
+          }
         });
 
-        map.on('click', 'h3-extrusion', (e) => {
+        // Click to pin/inspect cell & select neighborhood
+        map.on('click', 'h3-fill', (e) => {
           if (!e.features || e.features.length === 0) return;
-          const props = e.features[0].properties as unknown as H3CellProperties;
-          const matched = neighborhoods.find((n) => n.id === props.neighborhoodId);
+          const rawProps = e.features[0].properties as Record<string, unknown>;
+          const parsed = parseCellProperties(rawProps);
+          setClickedCell(parsed);
+          const matched = neighborhoods.find(
+            (n) =>
+              n.id === parsed.neighborhoodId ||
+              n.name === parsed.primaryNeighborhood
+          );
           if (matched) {
             onSelectNeighborhood(matched);
           }
@@ -663,34 +698,37 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           const matched = neighborhoods.find((n) => n.id === pinId);
           if (matched) {
             onSelectNeighborhood(matched);
+            setSelectedMahalleFilter(matched.name);
           }
         });
       });
 
       map.on('error', () => {
-        // Keep map functional even if external tiles or fonts fail in restricted sandboxes
+        // Safe fallback in restricted sandboxes
       });
     } catch {
-      // Seamless headless fallback without throwing or showing any API key / WebGL error banner
-      setWebglReady(false);
+      // MapLibre init fallback
     }
 
     return () => {
+      if (tooltipRef.current) {
+        tooltipRef.current.remove();
+      }
       if (map) {
         map.remove();
         mapInstanceRef.current = null;
       }
     };
-  }, [basemapMode, tileStyle]);
+  }, [tileStyle]);
 
-  // Synchronize GeoJSON data & paint expressions when props change in WebGL mode
+  // Synchronize GeoJSON data & 2D paint expressions when props/filters change
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || basemapMode !== 'webgl') return;
+    if (!map) return;
 
     const source = map.getSource('kandira-h3') as maplibregl.GeoJSONSource | undefined;
     if (source) {
-      source.setData(h3GeoJSON as unknown as GeoJSON.FeatureCollection);
+      source.setData(displayedH3GeoJSON as unknown as GeoJSON.FeatureCollection);
     }
 
     const pinsSource = map.getSource('kandira-neighborhood-pins') as
@@ -700,17 +738,8 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
       pinsSource.setData(neighborhoodPinsGeoJSON as unknown as GeoJSON.FeatureCollection);
     }
 
-    if (map.getLayer('h3-extrusion')) {
-      map.setPaintProperty(
-        'h3-extrusion',
-        'fill-extrusion-color',
-        buildColorExpression(activeLayer)
-      );
-      map.setPaintProperty(
-        'h3-extrusion',
-        'fill-extrusion-height',
-        buildExtrusionHeightExpression(activeLayer, is3D)
-      );
+    if (map.getLayer('h3-fill')) {
+      map.setPaintProperty('h3-fill', 'fill-color', buildColorExpression(activeLayer));
     }
 
     if (map.getLayer('kandira-neighborhood-circles')) {
@@ -727,24 +756,30 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
         showLabels ? 'visible' : 'none'
       );
     }
+  }, [displayedH3GeoJSON, neighborhoodPinsGeoJSON, activeLayer, showLabels]);
 
-    map.easeTo({
-      pitch: is3D ? 48 : 0,
-      bearing: is3D ? -12 : 0,
-      duration: 450,
-    });
-  }, [h3GeoJSON, neighborhoodPinsGeoJSON, activeLayer, is3D, showLabels, basemapMode]);
-
-  // Fly to selected neighborhood in WebGL mode
+  // Fly to selected neighborhood when filter or prop changes
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || basemapMode !== 'webgl' || !selectedNeighborhood) return;
-    map.flyTo({
-      center: selectedNeighborhood.coordinates,
-      zoom: 11.4,
-      duration: 650,
-    });
-  }, [selectedNeighborhood, basemapMode]);
+    if (!map) return;
+
+    if (selectedMahalleFilter !== 'all') {
+      const target = neighborhoods.find((n) => n.name === selectedMahalleFilter);
+      if (target) {
+        map.flyTo({
+          center: target.coordinates,
+          zoom: 11.8,
+          duration: 600,
+        });
+      }
+    } else if (selectedNeighborhood) {
+      map.flyTo({
+        center: selectedNeighborhood.coordinates,
+        zoom: 11.4,
+        duration: 600,
+      });
+    }
+  }, [selectedMahalleFilter, selectedNeighborhood, neighborhoods]);
 
   const currentLayerConfig = LAYER_CONFIGS[activeLayer];
 
@@ -757,7 +792,7 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `kandira_kontur_population_h3_res${resolution}_${selectedYear}.geojson`;
+    a.download = `kandira_kontur_population_400m_h3_res8_${selectedYear}.geojson`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -769,7 +804,7 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? '');
-      const parsed = parseKonturH3GeoJSON(text, resolution);
+      const parsed = parseKonturH3GeoJSON(text, 8);
       if (parsed.cellCount > 0) {
         setCustomKonturMap(parsed.map);
         setCustomKonturInfo({
@@ -777,7 +812,6 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           cellCount: parsed.cellCount,
           totalPopulation: parsed.totalPopulation,
         });
-        setCoverageMode('kontur_full');
         setActiveLayer('konturPopulation');
       }
     };
@@ -785,88 +819,39 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
     e.target.value = '';
   };
 
-  // Coastline & hydrography SVG paths for Vector H3 Studio
-  const blackSeaPolygonPoints = useMemo(() => {
-    const coastCoords: [number, number][] = [
-      [30.01, 41.215],
-      [30.40, 41.215],
-      [30.40, 41.192],
-      [30.365, 41.190], // Babalı / Dikili
-      [30.325, 41.188],
-      [30.292, 41.186], // Cebeci
-      [30.262, 41.174], // Kefken
-      [30.232, 41.168], // Kapri / Kumcağız
-      [30.204, 41.158], // Kerpe Burnu
-      [30.175, 41.152], // Sarısu
-      [30.145, 41.148], // Seyrek / Pınarlı
-      [30.095, 41.144],
-      [30.062, 41.142], // Bağırganlı
-      [30.01, 41.132],
-    ];
-    return coastCoords.map((c) => projectLngLat(c).join(',')).join(' ');
-  }, []);
-
-  const districtLandPoints = useMemo(() => {
-    const landCoords: [number, number][] = [
-      [30.01, 41.132],
-      [30.062, 41.142],
-      [30.145, 41.148],
-      [30.204, 41.158],
-      [30.262, 41.174],
-      [30.292, 41.186],
-      [30.365, 41.190],
-      [30.40, 41.192],
-      [30.39, 40.96],
-      [30.28, 40.945],
-      [30.15, 40.945],
-      [30.02, 40.965],
-    ];
-    return landCoords.map((c) => projectLngLat(c).join(',')).join(' ');
-  }, []);
-
-  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!isDragging) return;
-    setPan({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const resetView = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
-
   const handleOpenInspectedDrawer = () => {
     if (!inspectedCell) return;
-    const found = neighborhoods.find((n) => n.id === inspectedCell.neighborhoodId);
+    const found = neighborhoods.find(
+      (n) =>
+        n.id === inspectedCell.neighborhoodId ||
+        n.name === inspectedCell.primaryNeighborhood
+    );
     if (found) {
       onOpenDetailDrawer(found);
     }
   };
 
-  const showSvgFallback = basemapMode === 'vector' || !webglReady;
+  const handleResetMapCamera = () => {
+    setSelectedMahalleFilter('all');
+    setHoveredCell(null);
+    setClickedCell(null);
+    mapInstanceRef.current?.flyTo({
+      center: [30.185, 41.078],
+      zoom: 10.3,
+      duration: 500,
+    });
+  };
 
   return (
     <div className="relative bg-slate-900 rounded-2xl border border-slate-200/90 shadow-md overflow-hidden flex flex-col">
-      {/* Top Studio Control Header */}
+      {/* Top 2D WebGL Map Control Header */}
       <div className="bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex flex-col gap-2.5 z-20">
+        {/* Row 1: Thematic Metric Column Switcher Pills */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Left: 8 Thematic Layer Pills */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
-              <Layers className="w-3.5 h-3.5 text-teal-600" />
-              H3 Katmanı:
+              <Layers className="w-3.5 h-3.5 text-sky-600" />
+              Aktif Kolon / Katman:
             </span>
             {(Object.keys(LAYER_CONFIGS) as H3ThematicLayer[]).map((layerKey) => {
               const cfg = LAYER_CONFIGS[layerKey];
@@ -889,52 +874,40 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             })}
           </div>
 
-          {/* Right: H3 Resolution, 2D/3D Extrusion, Basemap Switcher */}
+          {/* Right: Base Grid Badge, Resolution Switcher & Labels Toggle */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Resolution Switcher */}
             <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => setResolution(7)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition ${
+                className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-semibold transition ${
                   resolution === 7
                     ? 'bg-white text-slate-900 shadow-2xs'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
                 title="H3 Çözünürlük 7 (~5.16 km² Makro Havza Altıgeni)"
               >
-                H3 Çöz. 7 (Makro)
+                Res 7
               </button>
               <button
                 type="button"
                 onClick={() => setResolution(8)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition ${
+                className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-semibold transition ${
                   resolution === 8
                     ? 'bg-white text-slate-900 shadow-2xs'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
                 title="H3 Çözünürlük 8 (~0.73 km² Kontur 400m Mikro Altıgeni)"
               >
-                H3 Çöz. 8 (Mikro)
+                Res 8 (400m)
               </button>
             </div>
 
-            {/* 2D / 3D Extrusion Toggle */}
-            <button
-              type="button"
-              onClick={() => setIs3D((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
-                is3D
-                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-900'
-                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-              }`}
-              title="3B Prizma Yükseklik Görünümü"
-            >
-              <Box className="w-3.5 h-3.5 text-amber-600" />
-              <span>{is3D ? '3B Prizma Aktif' : '2B / 3B Prizma'}</span>
-            </button>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-mono font-semibold bg-sky-50 text-sky-800 border border-sky-200">
+              <Hexagon className="w-3.5 h-3.5 text-sky-600" />
+              <span>Kontur 400m H3 Temel Izgara</span>
+            </span>
 
-            {/* Labels toggle */}
             <button
               type="button"
               onClick={() => setShowLabels((prev) => !prev)}
@@ -942,87 +915,73 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
               title="Mahalle Etiketlerini Göster/Gizle"
             >
               {showLabels ? (
-                <Eye className="w-3.5 h-3.5 text-teal-600" />
+                <Eye className="w-3.5 h-3.5 text-sky-600" />
               ) : (
                 <EyeOff className="w-3.5 h-3.5 text-slate-400" />
               )}
               <span className="hidden sm:inline">Etiketler</span>
             </button>
-
-            {/* Basemap Switcher: WebGL Harita (Default) vs Vektör H3 Stüdyo */}
-            <div
-              className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200"
-              title="Harita Motoru Seçimi"
-            >
-              <button
-                type="button"
-                onClick={() => setBasemapMode('webgl')}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
-                  basemapMode === 'webgl'
-                    ? 'bg-teal-700 text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Globe className="w-3 h-3" />
-                <span>WebGL Harita</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setBasemapMode('vector')}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
-                  basemapMode === 'vector'
-                    ? 'bg-teal-700 text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Cpu className="w-3 h-3" />
-                <span>Vektör H3 Stüdyo</span>
-              </button>
-            </div>
           </div>
         </div>
 
-        {/* Second Row: Kontur Population Türkiye (HDX H3) Coverage & Keyless WebGL Basemap Controls */}
+        {/* Row 2: Mahalle Filter (Including Border Hexagons), Kontur GeoJSON Tools & Tile Styles */}
         <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2.5 text-xs">
-          {/* Left: Kontur H3 Coverage Mode Switcher & HDX GeoJSON Import/Export */}
+          {/* Left: Mahalle Filter Selector */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
-              <Database className="w-3.5 h-3.5 text-sky-600" />
-              H3 Kapsamı:
-            </span>
-            <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setCoverageMode('kontur_full')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
-                  coverageMode === 'kontur_full'
-                    ? 'bg-sky-700 text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title={`${KONTUR_DATASET_METADATA.title} (${KONTUR_DATASET_METADATA.license})`}
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-sky-600" />
+              <span className="text-[11px] font-bold text-slate-600">Mahalle Filtresi:</span>
+              <select
+                value={selectedMahalleFilter}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedMahalleFilter(val);
+                  if (val !== 'all') {
+                    const found = neighborhoods.find((n) => n.name === val);
+                    if (found) {
+                      onSelectNeighborhood(found);
+                    }
+                  }
+                }}
+                aria-label="Haritada Mahalle Filtrele (Sınır Altıgenler Dahil)"
+                className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
               >
-                Kontur Tam Saha (HDX H3)
-              </button>
-              <button
-                type="button"
-                onClick={() => setCoverageMode('mahalle_catchment')}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
-                  coverageMode === 'mahalle_catchment'
-                    ? 'bg-sky-700 text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="36 Mahalle Merkez + Çeper Havza Altıgenleri"
-              >
-                Mahalle Havzası (36 Merkez)
-              </button>
+                <option value="all">
+                  Tüm Kandıra ({neighborhoods.length} Mahalle — Tüm Altıgenler)
+                </option>
+                {neighborhoods.map((n) => (
+                  <option key={n.id} value={n.name}>
+                    {n.name} Mahallesi
+                  </option>
+                ))}
+              </select>
+
+              {selectedMahalleFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedMahalleFilter('all')}
+                  className="text-[11px] font-bold text-sky-600 hover:text-sky-800 underline ml-1"
+                >
+                  Filtreyi Kaldır
+                </button>
+              )}
             </div>
 
-            {/* Kontur GeoJSON Export & Import Buttons */}
+            {selectedMahalleFilter !== 'all' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                <span>
+                  {selectedMahalleFilter}: {displayedH3GeoJSON.features.length} H3 altıgeni (sınır hücreleri dahil)
+                </span>
+              </span>
+            )}
+
+            {/* GeoJSON Export & Import */}
             <button
               type="button"
               onClick={handleExportKonturGeoJSON}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition"
-              title="Kandıra Kontur Population H3 altıgenlerini standart GeoJSON ({ fid, h3, population }) olarak indir"
+              title="Kandıra Kontur 400m H3 verilerini GeoJSON olarak indir"
             >
               <Download className="w-3 h-3" />
               <span>Kontur GeoJSON İndir</span>
@@ -1031,8 +990,8 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200/80 transition"
-              title="HDX Kontur Population Türkiye (.geojson / .json) altıgen dosyasını haritaya yükle"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition"
+              title="Kontur Population Türkiye GeoJSON dosyası yükle"
             >
               <Upload className="w-3 h-3" />
               <span>Kontur GeoJSON Yükle</span>
@@ -1046,19 +1005,15 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             />
 
             {customKonturInfo && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                <span>
-                  {customKonturInfo.fileName}: {customKonturInfo.cellCount} H3 (
-                  {customKonturInfo.totalPopulation.toLocaleString('tr-TR')} kişi)
-                </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <span>{customKonturInfo.fileName} yüklendi</span>
                 <button
                   type="button"
                   onClick={() => {
                     setCustomKonturMap(undefined);
                     setCustomKonturInfo(null);
                   }}
-                  className="ml-1 text-emerald-900 underline hover:no-underline"
+                  className="underline ml-1"
                 >
                   Sıfırla
                 </button>
@@ -1066,450 +1021,79 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             )}
           </div>
 
-          {/* Right: Keyless Open-Source WebGL Tile Style Switcher & Status Badge */}
+          {/* Right: Keyless Basemap Tile Switcher */}
           <div className="flex items-center gap-2 flex-wrap">
-            {basemapMode === 'webgl' && (
-              <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-                {(Object.keys(WEBGL_TILE_STYLES) as WebglTileStyle[]).map((styleKey) => {
-                  const st = WEBGL_TILE_STYLES[styleKey];
-                  return (
-                    <button
-                      key={styleKey}
-                      type="button"
-                      onClick={() => setTileStyle(styleKey)}
-                      className={`px-2 py-0.5 rounded-lg text-[11px] font-medium transition ${
-                        tileStyle === styleKey
-                          ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      {st.label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+              {(Object.keys(WEBGL_TILE_STYLES) as WebglTileStyle[]).map((styleKey) => {
+                const st = WEBGL_TILE_STYLES[styleKey];
+                return (
+                  <button
+                    key={styleKey}
+                    type="button"
+                    onClick={() => setTileStyle(styleKey)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-medium transition ${
+                      tileStyle === styleKey
+                        ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                );
+              })}
+            </div>
 
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span>WebGL Aktif • API Anahtarsız Açık Kaynak Harita (CARTO / OSM)</span>
+              <span>2B WebGL Harita</span>
             </span>
           </div>
         </div>
       </div>
 
-      {/* Main Map Viewport Container */}
-      <div className="relative w-full h-[540px] lg:h-[600px] bg-[#0f172a] overflow-hidden select-none">
-        {/* Mode 1: MapLibre GL WebGL Canvas */}
-        {basemapMode === 'webgl' && (
-          <div
-            ref={mapContainerRef}
-            className={`w-full h-full ${showSvgFallback ? 'hidden' : 'block'}`}
-          />
-        )}
+      {/* Main MapLibre GL 2D Canvas Viewport */}
+      <div className="relative w-full h-[580px] lg:h-[640px] bg-[#0f172a] overflow-hidden select-none">
+        {/* Pure WebGL MapLibre Canvas */}
+        <div ref={mapContainerRef} className="w-full h-full" />
 
-        {/* Mode 2: Interactive High-Precision SVG Cartographic H3 Studio (or Seamless Headless Fallback) */}
-        {showSvgFallback && (
-          <div
-            className="w-full h-full relative overflow-hidden"
-            style={{
-              perspective: is3D ? '1100px' : 'none',
-            }}
-          >
-            <svg
-              viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-              className={`w-full h-full transition-transform duration-300 ${
-                isDragging ? 'cursor-grabbing' : 'cursor-grab'
-              }`}
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) ${
-                  is3D ? 'rotateX(28deg) scaleY(0.92)' : ''
-                }`,
-                transformOrigin: 'center center',
-              }}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+        {/* Top-Left Navigation Controls (Zoom In, Zoom Out, Reset Camera) */}
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10">
+          <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-1 flex flex-col gap-1 shadow-lg text-slate-700">
+            <button
+              type="button"
+              onClick={() => mapInstanceRef.current?.zoomIn()}
+              className="p-2 rounded-xl hover:bg-slate-100 hover:text-slate-900 transition"
+              title="Yakınlaştır"
             >
-              <defs>
-                <linearGradient id="seaGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#082f49" />
-                  <stop offset="65%" stopColor="#0c4a6e" />
-                  <stop offset="100%" stopColor="#0369a1" />
-                </linearGradient>
-                <linearGradient id="landGrad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#1e293b" />
-                  <stop offset="50%" stopColor="#17253b" />
-                  <stop offset="100%" stopColor="#0f172a" />
-                </linearGradient>
-                <filter id="hexGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000000" floodOpacity="0.45" />
-                </filter>
-              </defs>
-
-              {/* Base Background */}
-              <rect width={SVG_WIDTH} height={SVG_HEIGHT} fill="#0b1324" />
-
-              {/* District Land Basin */}
-              <polygon
-                points={districtLandPoints}
-                fill="url(#landGrad)"
-                stroke="#334155"
-                strokeWidth={1.5}
-                strokeDasharray="6 4"
-              />
-
-              {/* Black Sea (Karadeniz) Northern Coastline */}
-              <polygon
-                points={blackSeaPolygonPoints}
-                fill="url(#seaGrad)"
-                stroke="#38bdf8"
-                strokeWidth={1.5}
-                strokeOpacity={0.55}
-              />
-
-              {/* Kefken Island (Kefken Adası) */}
-              {(() => {
-                const [ix, iy] = projectLngLat([30.261, 41.193]);
-                return (
-                  <g>
-                    <ellipse
-                      cx={ix}
-                      cy={iy}
-                      rx={9}
-                      ry={4.5}
-                      fill="#1e293b"
-                      stroke="#38bdf8"
-                      strokeWidth={1}
-                    />
-                    <text
-                      x={ix}
-                      y={iy - 7}
-                      textAnchor="middle"
-                      fill="#7dd3fc"
-                      fontSize={8.5}
-                      fontFamily="monospace"
-                      opacity={0.85}
-                    >
-                      Kefken Adası
-                    </text>
-                  </g>
-                );
-              })()}
-
-              {/* Coordinate Graticule Grid Lines */}
-              {[30.05, 30.1, 30.15, 30.2, 30.25, 30.3, 30.35].map((lng) => {
-                const [x] = projectLngLat([lng, 41.0]);
-                return (
-                  <g key={`lng-${lng}`}>
-                    <line
-                      x1={x}
-                      y1={0}
-                      x2={x}
-                      y2={SVG_HEIGHT}
-                      stroke="#334155"
-                      strokeWidth={0.6}
-                      strokeDasharray="3 5"
-                      opacity={0.45}
-                    />
-                    <text
-                      x={x + 4}
-                      y={SVG_HEIGHT - 8}
-                      fill="#64748b"
-                      fontSize={9}
-                      fontFamily="monospace"
-                    >
-                      {lng.toFixed(2)}°D
-                    </text>
-                  </g>
-                );
-              })}
-
-              {[40.98, 41.03, 41.08, 41.13, 41.18].map((lat) => {
-                const [, y] = projectLngLat([30.1, lat]);
-                return (
-                  <g key={`lat-${lat}`}>
-                    <line
-                      x1={0}
-                      y1={y}
-                      x2={SVG_WIDTH}
-                      y2={y}
-                      stroke="#334155"
-                      strokeWidth={0.6}
-                      strokeDasharray="3 5"
-                      opacity={0.45}
-                    />
-                    <text
-                      x={8}
-                      y={y - 4}
-                      fill="#64748b"
-                      fontSize={9}
-                      fontFamily="monospace"
-                    >
-                      {lat.toFixed(2)}°K
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Karadeniz Sea Label */}
-              <text
-                x={SVG_WIDTH * 0.46}
-                y={36}
-                textAnchor="middle"
-                fill="#38bdf8"
-                fontSize={14}
-                fontWeight={700}
-                letterSpacing={6}
-                opacity={0.65}
-              >
-                KARADENİZ (KIYI EKOSİSTEMİ)
-              </text>
-
-              {/* Main Road Corridors (D-605 İzmit-Kandıra-Kefken/Cebeci & Kaynarca/Ağva Aksı) */}
-              {(() => {
-                const d605 = [
-                  [30.125, 40.95],
-                  [30.148, 41.015],
-                  [30.158, 41.069], // Kandıra Merkez
-                  [30.205, 41.152], // Kerpe
-                  [30.261, 41.167], // Kefken
-                  [30.289, 41.182], // Cebeci
-                ]
-                  .map((c) => projectLngLat(c as [number, number]).join(','))
-                  .join(' ');
-
-                const d020 = [
-                  [30.02, 41.035],
-                  [30.095, 41.055],
-                  [30.158, 41.069],
-                  [30.255, 41.068],
-                  [30.365, 41.072],
-                ]
-                  .map((c) => projectLngLat(c as [number, number]).join(','))
-                  .join(' ');
-
-                return (
-                  <g opacity={0.45}>
-                    <polyline
-                      points={d605}
-                      fill="none"
-                      stroke="#94a3b8"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                    />
-                    <polyline
-                      points={d020}
-                      fill="none"
-                      stroke="#94a3b8"
-                      strokeWidth={1.8}
-                      strokeDasharray="4 4"
-                    />
-                  </g>
-                );
-              })()}
-
-              {/* H3 Hexagonal Mesh Polygons */}
-              <g>
-                {h3GeoJSON.features.map((feature) => {
-                  const props = feature.properties;
-                  const ring = feature.geometry.coordinates[0];
-                  const val = Number(props[activeLayer] ?? 0);
-                  const fillColor = getInterpolatedColor(val, activeLayer);
-
-                  const isHovered = hoveredCell?.h3Index === props.h3Index;
-                  const isSelectedMahalle =
-                    selectedNeighborhood?.id === props.neighborhoodId;
-
-                  const projectedRing = ring.map((coord) =>
-                    projectLngLat([coord[0], coord[1]])
-                  );
-
-                  // In 3D mode, shift top polygon upward proportional to normalized value
-                  const normHeight = is3D
-                    ? Math.max(
-                        4,
-                        Math.min(
-                          28,
-                          ((val - h3Stats.minVal) /
-                            Math.max(1, h3Stats.maxVal - h3Stats.minVal)) *
-                            26
-                        )
-                      )
-                    : 0;
-
-                  const basePointsStr = projectedRing
-                    .map(([x, y]) => `${x},${y}`)
-                    .join(' ');
-
-                  const extrudedPointsStr = projectedRing
-                    .map(([x, y]) => `${x},${(y - normHeight).toFixed(1)}`)
-                    .join(' ');
-
-                  return (
-                    <g
-                      key={props.h3Index}
-                      className="cursor-pointer transition-opacity"
-                      onMouseEnter={() => setHoveredCell(props)}
-                      onMouseLeave={() => setHoveredCell(null)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const matched = neighborhoods.find(
-                          (n) => n.id === props.neighborhoodId
-                        );
-                        if (matched) {
-                          onSelectNeighborhood(matched);
-                        }
-                      }}
-                    >
-                      {/* 3D Prism Base Shadow if is3D */}
-                      {is3D && (
-                        <polygon
-                          points={basePointsStr}
-                          fill="#020617"
-                          fillOpacity={0.65}
-                          stroke={fillColor}
-                          strokeWidth={0.8}
-                          strokeOpacity={0.35}
-                        />
-                      )}
-
-                      {/* Primary H3 Hexagon Polygon */}
-                      <polygon
-                        points={is3D ? extrudedPointsStr : basePointsStr}
-                        fill={fillColor}
-                        fillOpacity={
-                          isHovered
-                            ? 0.96
-                            : isSelectedMahalle
-                            ? 0.92
-                            : props.isCoreCell
-                            ? 0.84
-                            : 0.66
-                        }
-                        stroke={
-                          isHovered
-                            ? '#ffffff'
-                            : isSelectedMahalle
-                            ? '#fbbf24'
-                            : props.isCoreCell
-                            ? '#0f172a'
-                            : '#f8fafc'
-                        }
-                        strokeWidth={
-                          isHovered
-                            ? 2.4
-                            : isSelectedMahalle
-                            ? 2.0
-                            : props.isCoreCell
-                            ? 1.3
-                            : 0.65
-                        }
-                        strokeOpacity={
-                          isHovered || isSelectedMahalle
-                            ? 1
-                            : props.isCoreCell
-                            ? 0.85
-                            : 0.45
-                        }
-                        filter={isHovered || isSelectedMahalle ? 'url(#hexGlow)' : undefined}
-                      />
-                    </g>
-                  );
-                })}
-              </g>
-
-              {/* Neighborhood Center Markers & Labels */}
-              {showLabels &&
-                neighborhoods.map((n) => {
-                  const [cx, cy] = projectLngLat(n.coordinates);
-                  const isSelected = selectedNeighborhood?.id === n.id;
-
-                  return (
-                    <g
-                      key={n.id}
-                      className="cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectNeighborhood(n);
-                      }}
-                    >
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={isSelected ? 5.5 : 3.2}
-                        fill={isSelected ? '#fbbf24' : '#ffffff'}
-                        stroke="#0f172a"
-                        strokeWidth={1.6}
-                      />
-                      <text
-                        x={cx}
-                        y={cy - (isSelected ? 9 : 6)}
-                        textAnchor="middle"
-                        fill={isSelected ? '#fef08a' : '#f8fafc'}
-                        fontSize={isSelected ? 10.5 : 8.5}
-                        fontWeight={isSelected ? 700 : 600}
-                        style={{
-                          paintOrder: 'stroke',
-                          stroke: '#0f172a',
-                          strokeWidth: 2.8,
-                          strokeLinecap: 'round',
-                          strokeLinejoin: 'round',
-                        }}
-                      >
-                        {n.name.replace(' (Kerpe)', '')}
-                      </text>
-                    </g>
-                  );
-                })}
-            </svg>
-
-            {/* Top-Left Zoom & Compass Controls for Vector Studio */}
-            <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10">
-              <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 flex flex-col gap-1 shadow-lg">
-                <button
-                  type="button"
-                  onClick={() => setZoom((z) => Math.min(2.6, Number((z + 0.25).toFixed(2))))}
-                  className="p-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"
-                  title="Yakınlaştır"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoom((z) => Math.max(0.8, Number((z - 0.25).toFixed(2))))}
-                  className="p-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"
-                  title="Uzaklaştır"
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={resetView}
-                  className="p-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-slate-800 transition"
-                  title="Görünümü Sıfırla"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="bg-slate-900/85 backdrop-blur-md border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-[10px] font-mono text-slate-300 flex items-center gap-1.5 shadow-md">
-                <Compass className="w-3.5 h-3.5 text-teal-400" />
-                <span>{Math.round(zoom * 100)}%</span>
-              </div>
-            </div>
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => mapInstanceRef.current?.zoomOut()}
+              className="p-2 rounded-xl hover:bg-slate-100 hover:text-slate-900 transition"
+              title="Uzaklaştır"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleResetMapCamera}
+              className="p-2 rounded-xl hover:bg-slate-100 hover:text-slate-900 transition border-t border-slate-100"
+              title="Görünümü ve Filtreyi Sıfırla"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
           </div>
-        )}
+        </div>
 
-        {/* Bottom-Left Choropleth Legend & H3 Spatial Summary */}
+        {/* Bottom-Left 2D Choropleth Legend & Telemetry Summary */}
         <div className="absolute bottom-3 left-3 z-20 max-w-xs sm:max-w-sm bg-slate-900/92 backdrop-blur-md border border-slate-700/80 rounded-2xl p-3.5 text-white shadow-xl">
           <div className="flex items-center justify-between gap-2 mb-1.5">
             <div className="flex items-center gap-1.5 text-xs font-bold text-white">
-              <Hexagon className="w-3.5 h-3.5 text-teal-400 fill-teal-400/20" />
+              <Hexagon className="w-3.5 h-3.5 text-sky-400 fill-sky-400/20" />
               <span>{currentLayerConfig.label}</span>
             </div>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-teal-300 border border-slate-700">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700">
               {selectedYear}
             </span>
           </div>
@@ -1545,28 +1129,30 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           <div className="mt-2.5 pt-2 border-t border-slate-800 flex flex-col gap-1 text-[10px] font-mono text-slate-400">
             <div className="flex items-center justify-between">
               <span>
-                Toplam: <strong className="text-white">{h3Stats.totalCells}</strong> H3 Hücre
+                Gösterilen: <strong className="text-white">{h3Stats.totalCells}</strong> H3 Hücre
               </span>
               <span>
-                Merkez: <strong className="text-teal-300">{h3Stats.coreCells}</strong> • Çeper:{' '}
-                <strong className="text-slate-200">{h3Stats.ringCells}</strong>
+                Merkez: <strong className="text-sky-300">{h3Stats.coreCells}</strong> • Sınır/Çeper:{' '}
+                <strong className="text-slate-200">{h3Stats.borderCells}</strong>
               </span>
             </div>
             <div className="flex items-center justify-between text-[9.5px] text-sky-300/90">
-              <span>Kaynak: HDX Kontur Population Türkiye (CC BY 4.0)</span>
-              <span>{h3Stats.totalKonturPop.toLocaleString('tr-TR')} kişi</span>
+              <span>Kontur HDX 400m Nüfus:</span>
+              <strong className="text-white">
+                {h3Stats.totalKonturPop.toLocaleString('tr-TR')} kişi
+              </strong>
             </div>
           </div>
         </div>
 
-        {/* Top-Right / Floating H3 Cell Inspector HUD */}
-        <div className="absolute top-3 right-3 z-20 w-72 sm:w-80 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-4 transition-all">
+        {/* Top-Right Floating H3 Cell Inspector HUD (Full Tabular Column Record) */}
+        <div className="absolute top-3 right-3 z-20 w-80 sm:w-96 max-h-[92%] overflow-y-auto bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-xl p-4 transition-all">
           {inspectedCell ? (
-            <div>
-              {/* Top Row: H3 Index & Core/Ring Badge */}
-              <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="space-y-3">
+              {/* Top Row: H3 Res-8 Index & Core / Border Badge */}
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
-                  <Hexagon className="w-4 h-4 text-teal-700 fill-teal-100" />
+                  <Hexagon className="w-4 h-4 text-sky-600 fill-sky-100 shrink-0" />
                   <span className="font-mono text-xs font-bold text-slate-900 tracking-tight">
                     {inspectedCell.h3Index}
                   </span>
@@ -1574,113 +1160,210 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
                 <span
                   className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                     inspectedCell.isCoreCell
-                      ? 'bg-teal-50 text-teal-800 border-teal-200'
-                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                      ? 'bg-sky-50 text-sky-800 border-sky-200'
+                      : 'bg-amber-50 text-amber-800 border-amber-200'
                   }`}
                 >
-                  {inspectedCell.isCoreCell ? 'Merkez Hücre' : 'Çeper Hücre'}
+                  {inspectedCell.isCoreCell ? 'Merkez Hücresi' : 'Sınır / Çeper Hücresi'}
                 </span>
               </div>
 
-              {/* Neighborhood Name & Zone */}
-              <div className="mb-3 pb-2.5 border-b border-slate-200/80">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span>{inspectedCell.neighborhoodName} Mahallesi</span>
-                  </h4>
-                  <span className="text-xs font-mono font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                    Skor: {inspectedCell.vulnerabilityScore}
+              {/* Overlapping Neighborhoods Array Banner (Key Requirement) */}
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/90">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-sky-600" />
+                    Kapsanan / Sınır Mahalleler:
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {inspectedCell.neighborhoodNames.length} Mahalle
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  {inspectedCell.zoneLabel} • {inspectedCell.year} Verisi
-                </p>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  {inspectedCell.neighborhoodNames.map((name) => {
+                    const isPrimary = name === inspectedCell.primaryNeighborhood;
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => {
+                          const matched = neighborhoods.find((n) => n.name === name);
+                          if (matched) {
+                            onSelectNeighborhood(matched);
+                            setSelectedMahalleFilter(name);
+                          }
+                        }}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border transition ${
+                          isPrimary
+                            ? 'bg-sky-600 text-white border-sky-700 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                        title={`${name} mahallesini filtrele`}
+                      >
+                        <span>{name}</span>
+                        {isPrimary && (
+                          <span className="text-[9px] bg-sky-700/80 px-1 rounded text-sky-100">
+                            Esas
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* Kontur Population Türkiye (HDX H3) Telemetry Banner */}
-              <div className="mb-2.5 p-2.5 rounded-xl bg-sky-50/90 border border-sky-200/80 flex items-center justify-between text-xs">
+              {/* Primary Neighborhood & Vulnerability Score */}
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <div>
-                  <div className="text-[10px] font-semibold text-sky-800 flex items-center gap-1">
-                    <Database className="w-3 h-3 text-sky-600" />
-                    <span>Kontur H3 Nüfusu (HDX)</span>
+                  <h4 className="text-sm font-extrabold text-slate-900">
+                    {inspectedCell.primaryNeighborhood} Mahallesi
+                  </h4>
+                  <div className="text-[11px] text-slate-500">
+                    {inspectedCell.zoneLabel} • {inspectedCell.year} Verisi
                   </div>
-                  <div className="font-mono font-bold text-sky-950 mt-0.5">
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-slate-400 font-semibold">Kırılganlık</div>
+                  <span className="text-sm font-mono font-extrabold text-rose-600">
+                    {inspectedCell.vulnerabilityScore} / 100
+                  </span>
+                </div>
+              </div>
+
+              {/* Kontur Population HDX 400m Grid Metrics Banner */}
+              <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-between text-xs">
+                <div>
+                  <div className="text-[10px] font-bold text-sky-800 flex items-center gap-1">
+                    <Database className="w-3 h-3 text-sky-600" />
+                    <span>Kontur 400m Nüfusu</span>
+                  </div>
+                  <div className="font-mono font-extrabold text-sky-950 mt-0.5 text-base">
                     {inspectedCell.konturPopulation.toLocaleString('tr-TR')} kişi
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[10px] text-sky-700">Kontur Yoğunluk</div>
+                  <div className="text-[10px] font-semibold text-sky-700">Kontur Yoğunluk</div>
                   <div className="font-mono font-bold text-sky-900 mt-0.5">
                     {inspectedCell.konturDensityPerKm2.toLocaleString('tr-TR')} kişi/km²
                   </div>
                 </div>
               </div>
 
-              {/* Cell Telemetry Grid */}
-              <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+              {/* Tabular Enriched Columns Grid */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
-                  <div className="text-[10px] text-slate-500">Hücre Kış Nüfusu</div>
+                  <div className="text-[10px] text-slate-500 font-medium">Toplam Nüfus</div>
                   <div className="font-mono font-bold text-slate-900 mt-0.5">
-                    {inspectedCell.population.toLocaleString('tr-TR')} kişi
+                    {inspectedCell.totalPopulation.toLocaleString('tr-TR')} kişi
                   </div>
                 </div>
+
                 <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
-                  <div className="text-[10px] text-slate-500">Tahmini Yaz Nüfusu</div>
-                  <div className="font-mono font-bold text-indigo-700 mt-0.5">
+                  <div className="text-[10px] text-slate-500 font-medium">Yaz Tepe Nüfusu</div>
+                  <div className="font-mono font-bold text-amber-700 mt-0.5">
                     {inspectedCell.summerPopEstimate.toLocaleString('tr-TR')} kişi
                   </div>
                 </div>
+
                 <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
-                  <div className="text-[10px] text-slate-500">5 Yıllık Nüfus Δ</div>
+                  <div className="text-[10px] text-slate-500 font-medium">5 Yıllık Nüfus Δ</div>
                   <div
                     className={`font-mono font-bold mt-0.5 ${
                       inspectedCell.popChange5YrPct >= 0
                         ? 'text-emerald-700'
-                        : 'text-blue-700'
+                        : 'text-rose-700'
                     }`}
                   >
-                    {inspectedCell.popChange5YrPct > 0 ? '+' : ''}
-                    %{inspectedCell.popChange5YrPct}
+                    {inspectedCell.popChange5YrPct > 0 ? '+' : ''}%{inspectedCell.popChange5YrPct}
                   </div>
                 </div>
+
                 <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
-                  <div className="text-[10px] text-slate-500">65+ Yaşlı / Yapılaşma</div>
+                  <div className="text-[10px] text-slate-500 font-medium">65+ Yaşlı / 0-14 Genç</div>
                   <div className="font-mono font-bold text-slate-800 mt-0.5">
-                    %{inspectedCell.elderlyPct} / %{inspectedCell.builtUpPct}
+                    %{inspectedCell.elderlyPct} / %{inspectedCell.youthPct}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    <Building2 className="w-3 h-3 text-slate-400" />
+                    <span>Yapılaşma Oranı</span>
+                  </div>
+                  <div className="font-mono font-bold text-slate-800 mt-0.5">
+                    %{inspectedCell.builtUpPct}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    <Trees className="w-3 h-3 text-emerald-600" />
+                    <span>Orman / Tarım</span>
+                  </div>
+                  <div className="font-mono font-bold text-slate-800 mt-0.5">
+                    %{inspectedCell.forestPct} / %{inspectedCell.agriculturePct}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    <HeartPulse className="w-3 h-3 text-rose-500" />
+                    <span>Sağlık Erişimi</span>
+                  </div>
+                  <div className="font-mono font-bold text-slate-900 mt-0.5">
+                    {inspectedCell.healthAccessMin} dk
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    <GraduationCap className="w-3 h-3 text-sky-600" />
+                    <span>Eğitim Erişimi</span>
+                  </div>
+                  <div className="font-mono font-bold text-slate-900 mt-0.5">
+                    {inspectedCell.educationAccessMin} dk
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    <Wheat className="w-3 h-3 text-amber-600" />
+                    <span>Mevsimlik İşçi (Tah.)</span>
+                  </div>
+                  <div className="font-mono font-bold text-slate-900 mt-0.5">
+                    ~{inspectedCell.seasonalWorkersEst} kişi
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    <UserCheck className="w-3 h-3 text-indigo-600" />
+                    <span>Sosyal Yardım (Tah.)</span>
+                  </div>
+                  <div className="font-mono font-bold text-slate-900 mt-0.5">
+                    ~{inspectedCell.socialAidHouseholdsEst} hane
                   </div>
                 </div>
               </div>
 
-              {/* Access Times Bar */}
-              <div className="flex items-center justify-between text-[11px] bg-teal-50/70 border border-teal-200/70 rounded-xl px-3 py-2 mb-3 text-teal-950">
-                <span>
-                  Sağlık: <strong className="font-mono">{inspectedCell.healthAccessMin} dk</strong>
-                </span>
-                <span className="text-slate-300">|</span>
-                <span>
-                  Eğitim: <strong className="font-mono">{inspectedCell.educationAccessMin} dk</strong>
-                </span>
-              </div>
-
-              {/* Action Button */}
+              {/* Action Button: Open Detail Drawer */}
               <button
                 type="button"
                 onClick={handleOpenInspectedDrawer}
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition shadow-xs"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition shadow-sm"
               >
-                <span>Mahalle Karnesini Aç</span>
+                <span>{inspectedCell.primaryNeighborhood} Mahalle Karnesini Aç</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
-            <div className="text-center py-3">
-              <Hexagon className="w-7 h-7 text-teal-600 mx-auto mb-1.5 opacity-80" />
+            <div className="text-center py-4">
+              <Hexagon className="w-7 h-7 text-sky-600 mx-auto mb-1.5 opacity-80" />
               <div className="text-xs font-bold text-slate-800">
                 H3 Altıgen Hücre Denetleyicisi
               </div>
               <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Kontur HDX 400m nüfus yoğunluğu, kırılganlık, arazi değişimi ve erişim verilerini incelemek için haritadaki bir <strong>H3 altıgenine</strong> dokunun veya üzerine gelin.
+                Kontur 400m nüfus yoğunluğu, sınır mahalleler ve zenginleştirilmiş kolon verilerini incelemek için haritadaki bir <strong>H3 altıgenine</strong> dokunun veya üzerine gelin.
               </p>
             </div>
           )}
