@@ -60,7 +60,12 @@ export type H3ThematicLayer =
   | 'educationAccessMin'
   | 'summerPopEstimate';
 
-export type WebglTileStyle = 'voyager' | 'positron' | 'dark' | 'osm';
+export type WebglTileStyle =
+  | 'esri_gray'
+  | 'osm'
+  | 'esri_satellite'
+  | 'opentopo'
+  | 'esri_dark';
 
 export const WEBGL_TILE_STYLES: Record<
   WebglTileStyle,
@@ -70,47 +75,58 @@ export const WEBGL_TILE_STYLES: Record<
     bgColor: string;
     tiles: string[];
     attribution: string;
+    maxzoom?: number;
   }
 > = {
-  voyager: {
-    id: 'voyager',
-    label: 'Carto Voyager',
-    bgColor: '#f1f5f9',
-    tiles: [
-      'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-      'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-      'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-    ],
-    attribution: '© OpenStreetMap contributors, © CARTO (Keyless Open Basemap)',
-  },
-  positron: {
-    id: 'positron',
-    label: 'Carto Positron',
+  esri_gray: {
+    id: 'esri_gray',
+    label: 'Açık Gri Altlık',
     bgColor: '#e2e8f0',
     tiles: [
-      'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
-      'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
-      'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     ],
-    attribution: '© OpenStreetMap contributors, © CARTO Positron (Keyless)',
-  },
-  dark: {
-    id: 'dark',
-    label: 'Carto Dark',
-    bgColor: '#0f172a',
-    tiles: [
-      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-      'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-    ],
-    attribution: '© OpenStreetMap contributors, © CARTO Dark Matter (Keyless)',
+    attribution: '© Esri, DeLorme, NAVTEQ',
+    maxzoom: 16,
   },
   osm: {
     id: 'osm',
     label: 'OSM Standart',
     bgColor: '#e2e8f0',
     tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: '© OpenStreetMap contributors (Keyless Open Tile Server)',
+    attribution: '© OpenStreetMap contributors',
+    maxzoom: 19,
+  },
+  esri_satellite: {
+    id: 'esri_satellite',
+    label: 'Uydu (Esri Satellite)',
+    bgColor: '#0b1526',
+    tiles: [
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    ],
+    attribution: '© Esri, Maxar, Earthstar Geographics',
+    maxzoom: 19,
+  },
+  opentopo: {
+    id: 'opentopo',
+    label: 'Topografik Arazi (OpenTopo)',
+    bgColor: '#e5e7eb',
+    tiles: [
+      'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
+    ],
+    attribution: '© OpenTopoMap, © OpenStreetMap contributors',
+    maxzoom: 17,
+  },
+  esri_dark: {
+    id: 'esri_dark',
+    label: 'Koyu Gri Altlık',
+    bgColor: '#0f172a',
+    tiles: [
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    ],
+    attribution: '© Esri, DeLorme, NAVTEQ',
+    maxzoom: 16,
   },
 };
 
@@ -359,7 +375,7 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
 }) => {
   const [activeLayer, setActiveLayer] = useState<H3ThematicLayer>('konturPopulation');
   const [showLabels, setShowLabels] = useState<boolean>(true);
-  const [tileStyle, setTileStyle] = useState<WebglTileStyle>('voyager');
+  const [tileStyle, setTileStyle] = useState<WebglTileStyle>('esri_gray');
 
   // Kontur resolution (defaults to 8: 400m H3 micro grid)
   const [resolution, setResolution] = useState<7 | 8>(8);
@@ -503,6 +519,7 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
               tiles: activeTileCfg.tiles,
               tileSize: 256,
               attribution: activeTileCfg.attribution,
+              maxzoom: activeTileCfg.maxzoom ?? 19,
             },
           },
           layers: [
@@ -518,7 +535,7 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
               type: 'raster',
               source: 'open-basemap-tiles',
               minzoom: 0,
-              maxzoom: 19,
+              maxzoom: activeTileCfg.maxzoom ?? 19,
             },
           ],
         },
