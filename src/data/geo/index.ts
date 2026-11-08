@@ -1,2 +1,2 @@
-export { kandiraDistrictAdmin6GeoJSON } from "./kandiraDistrictAdmin6";
-export { kandiraNeighborhoodsAdmin8GeoJSON } from "./kandiraNeighborhoodsAdmin8";
+export { kandiraDistrictAdmin6GeoJSON, kandiraDistrictOfficialNetcadGeoJSON } from "./kandiraDistrictAdmin6";
+export { kandiraNeighborhoodsAdmin8GeoJSON, kandiraNeighborhoodsOfficialNetcadGeoJSON } from "./kandiraNeighborhoodsAdmin8";

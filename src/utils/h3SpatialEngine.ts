@@ -30,6 +30,8 @@ import { DEFAULT_VULNERABILITY_WEIGHTS, ZONE_LABELS } from '../data/kandiraNeigh
 import {
   kandiraDistrictAdmin6GeoJSON,
   kandiraNeighborhoodsAdmin8GeoJSON,
+  kandiraDistrictOfficialNetcadGeoJSON,
+  kandiraNeighborhoodsOfficialNetcadGeoJSON,
 } from '../data/geo';
 
 export const KONTUR_DATASET_METADATA = {
@@ -151,6 +153,8 @@ export const INDEXED_OSM_NEIGHBORHOODS: IndexedOsmBoundary[] =
       bbox: { minLng, minLat, maxLng, maxLat },
     };
   });
+
+export const INDEXED_OFFICIAL_NEIGHBORHOODS = INDEXED_OSM_NEIGHBORHOODS;
 
 /**
  * Converts a Polygon or MultiPolygon into a standardized MultiPolygon GeoJSON geometry.
@@ -1131,7 +1135,9 @@ export function generateKandiraDistrictBoundaryGeoJSON(
   neighborhoods: NeighborhoodData[],
   _h3Features?: Feature<Polygon, H3CellProperties>[]
 ): FeatureCollection<MultiPolygon, DistrictBoundaryProperties> {
-  const officialGeom = kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
+  const officialGeom =
+    kandiraDistrictOfficialNetcadGeoJSON.features[0]?.geometry ??
+    kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
   const multiPoly: MultiPolygon = officialGeom
     ? toMultiPolygon(officialGeom)
     : {
