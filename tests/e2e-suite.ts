@@ -10,11 +10,17 @@ import {
 } from '../src/data/kandiraNeighborhoods';
 import {
   calculateDynamicVulnerabilityScore,
+  generateKandiraDistrictBoundaryGeoJSON,
   generateKandiraH3GeoJSON,
+  generateKandiraNeighborhoodBoundariesGeoJSON,
   getDistrictSummaryMetrics,
   getYearData,
   isInBlackSea,
 } from '../src/utils/h3SpatialEngine';
+import {
+  MINI_SOURCE_LINKS,
+  OFFICIAL_DATA_SOURCES,
+} from '../src/data/dataSources';
 import type {
   LandUseChangeCategory,
   NeighborhoodZone,
@@ -2312,6 +2318,53 @@ runTest(
       !/src=["']\/assets\/[^"']+\.js["']/i.test(html),
       'Standalone HTML must not retain external /assets/*.js script tags'
     );
+  }
+);
+
+runTest(
+  'T4-S7',
+  'Tier 4',
+  'SCENARIO',
+  'S7: Administrative Boundaries (District & 36 Neighborhoods) & External Source Links Verification',
+  () => {
+    const h3Fc = generateKandiraH3GeoJSON(KANDIRA_NEIGHBORHOODS, 2025, 8);
+    const nbFc = generateKandiraNeighborhoodBoundariesGeoJSON(
+      KANDIRA_NEIGHBORHOODS,
+      h3Fc.features
+    );
+    const dbFc = generateKandiraDistrictBoundaryGeoJSON(
+      KANDIRA_NEIGHBORHOODS,
+      h3Fc.features
+    );
+
+    assert(
+      nbFc.features.length === 36,
+      `Expected 36 neighborhood boundary MultiPolygon features, got ${nbFc.features.length}`
+    );
+    for (const f of nbFc.features) {
+      assert(f.geometry.type === 'MultiPolygon', 'Neighborhood boundary must be MultiPolygon');
+      assert(
+        f.geometry.coordinates.length > 0,
+        `Neighborhood ${f.properties.name} boundary must have non-empty coordinates`
+      );
+      assert(f.properties.cellCount > 0, `${f.properties.name} cellCount must be > 0`);
+    }
+
+    assert(dbFc.features.length === 1, 'District boundary must have 1 outer feature');
+    assert(
+      dbFc.features[0].geometry.type === 'MultiPolygon' &&
+        dbFc.features[0].geometry.coordinates.length > 0,
+      'District boundary must be a non-empty MultiPolygon'
+    );
+
+    assert(MINI_SOURCE_LINKS.length === 5, `Expected 5 mini source links, got ${MINI_SOURCE_LINKS.length}`);
+    assert(OFFICIAL_DATA_SOURCES.length >= 5, 'Expected >= 5 official data sources');
+    const urls = MINI_SOURCE_LINKS.map((s) => s.url);
+    assert(
+      urls.includes('https://data.humdata.org/dataset/kontur-population-turkiye'),
+      'Missing Kontur HDX source URL'
+    );
+    assert(urls.includes('https://biruni.tuik.gov.tr/medas/'), 'Missing TÜİK MEDAS source URL');
   }
 );
 

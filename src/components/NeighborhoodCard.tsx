@@ -17,6 +17,7 @@ import {
   Bus,
   Check,
   Hexagon,
+  ExternalLink,
 } from 'lucide-react';
 import {
   NeighborhoodData,
@@ -28,6 +29,7 @@ import {
   calculateDynamicVulnerabilityScore,
   getYearData,
 } from '../utils/h3SpatialEngine';
+import { MINI_SOURCE_LINKS } from '../data/dataSources';
 
 interface NeighborhoodCardProps {
   neighborhood: NeighborhoodData;
@@ -510,6 +512,26 @@ export const NeighborhoodCard: React.FC<NeighborhoodCardProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mini Data Source Links Strip */}
+      <div className="px-4 py-1.5 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-800/20 flex items-center justify-between gap-1.5 flex-wrap text-[10px] text-slate-400">
+        <span className="font-semibold text-slate-400">Kaynak:</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {MINI_SOURCE_LINKS.map((src) => (
+            <a
+              key={src.id}
+              href={src.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={src.fullLabel}
+              className="inline-flex items-center gap-0.5 text-slate-500 hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-400 transition underline decoration-slate-300"
+            >
+              <span>{src.shortLabel}</span>
+              <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+            </a>
+          ))}
         </div>
       </div>
 

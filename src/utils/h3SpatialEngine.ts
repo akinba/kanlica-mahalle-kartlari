@@ -10,13 +10,16 @@ import {
   getResolution,
   cellToParent,
   cellToCenterChild,
+  cellsToMultiPolygon,
   UNITS,
 } from 'h3-js';
-import type { Feature, FeatureCollection, Polygon } from 'geojson';
+import type { Feature, FeatureCollection, Polygon, MultiPolygon } from 'geojson';
 import {
+  DistrictBoundaryProperties,
   DistrictSummaryMetrics,
   H3CellProperties,
   H3CoverageMode,
+  NeighborhoodBoundaryProperties,
   NeighborhoodData,
   NeighborhoodZone,
   SurveyYear,
@@ -745,5 +748,99 @@ export function getDistrictSummaryMetrics(
         ),
       },
     },
+  };
+}
+
+/**
+ * Generates GeoJSON MultiPolygon boundary features for all Kandıra neighborhoods
+ * by dissolving the constituent H3 cells assigned to each neighborhood.
+ */
+export function generateKandiraNeighborhoodBoundariesGeoJSON(
+  neighborhoods: NeighborhoodData[],
+  h3Features?: Feature<Polygon, H3CellProperties>[]
+): FeatureCollection<MultiPolygon, NeighborhoodBoundaryProperties> {
+  const features = h3Features ?? generateKandiraH3GeoJSON(neighborhoods, 2025, 8).features;
+
+  const cellsByNeighborhood = new Map<string, string[]>();
+  for (const f of features) {
+    const nId = f.properties.neighborhoodId;
+    if (!cellsByNeighborhood.has(nId)) {
+      cellsByNeighborhood.set(nId, []);
+    }
+    cellsByNeighborhood.get(nId)!.push(f.properties.h3Index);
+  }
+
+  const boundaryFeatures: Feature<MultiPolygon, NeighborhoodBoundaryProperties>[] = [];
+
+  for (const n of neighborhoods) {
+    const cells = cellsByNeighborhood.get(n.id) || [];
+    let coords: number[][][][] = [];
+    if (cells.length > 0) {
+      coords = cellsToMultiPolygon(cells, true);
+    }
+
+    if (!coords || coords.length === 0) {
+      const fallbackCell = latLngToCell(n.coordinates[1], n.coordinates[0], 8);
+      coords = cellsToMultiPolygon([fallbackCell], true);
+    }
+
+    boundaryFeatures.push({
+      type: 'Feature',
+      id: `boundary-${n.id}`,
+      properties: {
+        id: n.id,
+        code: n.code,
+        name: n.name,
+        zone: n.zone,
+        zoneLabel: n.zoneLabel,
+        areaKm2: n.areaKm2,
+        centerCoordinates: n.coordinates,
+        cellCount: cells.length,
+      },
+      geometry: {
+        type: 'MultiPolygon',
+        coordinates: coords,
+      },
+    });
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: boundaryFeatures,
+  };
+}
+
+/**
+ * Generates the outer administrative boundary of Kandıra district
+ * by merging all constituent H3 cells into a unified perimeter MultiPolygon.
+ */
+export function generateKandiraDistrictBoundaryGeoJSON(
+  neighborhoods: NeighborhoodData[],
+  h3Features?: Feature<Polygon, H3CellProperties>[]
+): FeatureCollection<MultiPolygon, DistrictBoundaryProperties> {
+  const features = h3Features ?? generateKandiraH3GeoJSON(neighborhoods, 2025, 8).features;
+  const allCells = features.map((f) => f.properties.h3Index);
+  const districtCoords = cellsToMultiPolygon(allCells, true);
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        id: 'kandira-district-outline',
+        properties: {
+          id: 'kandira',
+          name: 'Kandıra',
+          province: 'Kocaeli',
+          country: 'Türkiye',
+          totalAreaKm2: neighborhoods.reduce((sum, n) => sum + n.areaKm2, 0),
+          totalNeighborhoods: neighborhoods.length,
+        },
+        geometry: {
+          type: 'MultiPolygon',
+          coordinates: districtCoords,
+        },
+      },
+    ],
   };
 }

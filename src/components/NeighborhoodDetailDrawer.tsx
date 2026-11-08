@@ -20,6 +20,8 @@ import {
   Mountain,
   Compass,
   CheckCircle2,
+  ExternalLink,
+  Database,
 } from 'lucide-react';
 import {
   NeighborhoodData,
@@ -30,6 +32,7 @@ import {
   calculateDynamicVulnerabilityScore,
   getYearData,
 } from '../utils/h3SpatialEngine';
+import { MINI_SOURCE_LINKS } from '../data/dataSources';
 
 interface NeighborhoodDetailDrawerProps {
   neighborhood: NeighborhoodData | null;
@@ -730,6 +733,29 @@ export const NeighborhoodDetailDrawer: React.FC<NeighborhoodDetailDrawerProps> =
               ))}
             </div>
           </section>
+
+          {/* Veri Kaynakları & Referans Linkleri */}
+          <footer className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5 text-sky-600" />
+              Karne Veri Kaynakları:
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {MINI_SOURCE_LINKS.map((link) => (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={link.fullLabel}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 border border-slate-200 dark:border-slate-700 hover:border-sky-400 transition"
+                >
+                  <span>{link.fullLabel}</span>
+                  <ExternalLink className="w-3 h-3 opacity-75" />
+                </a>
+              ))}
+            </div>
+          </footer>
         </div>
       </aside>
     </div>

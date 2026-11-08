@@ -36,9 +36,12 @@ import {
 import {
   KONTUR_DATASET_METADATA,
   createKonturExportGeoJSON,
+  generateKandiraDistrictBoundaryGeoJSON,
   generateKandiraH3GeoJSON,
+  generateKandiraNeighborhoodBoundariesGeoJSON,
   parseKonturH3GeoJSON,
 } from '../utils/h3SpatialEngine';
+import { MINI_SOURCE_LINKS } from '../data/dataSources';
 
 export interface H3MapViewProps {
   neighborhoods: NeighborhoodData[];
@@ -374,6 +377,9 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
   onOpenDetailDrawer,
 }) => {
   const [activeLayer, setActiveLayer] = useState<H3ThematicLayer>('konturPopulation');
+  const [showH3Grid, setShowH3Grid] = useState<boolean>(true);
+  const [showDistrictBoundary, setShowDistrictBoundary] = useState<boolean>(true);
+  const [showNeighborhoodBoundaries, setShowNeighborhoodBoundaries] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [tileStyle, setTileStyle] = useState<WebglTileStyle>('esri_gray');
 
@@ -453,6 +459,34 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
       })),
     };
   }, [neighborhoods, selectedNeighborhood, selectedMahalleFilter]);
+
+  // Neighborhood Administrative Boundaries GeoJSON (36 Kandıra neighborhoods)
+  const neighborhoodBoundariesGeoJSON = useMemo(() => {
+    const raw = generateKandiraNeighborhoodBoundariesGeoJSON(
+      neighborhoods,
+      h3GeoJSON.features
+    );
+    return {
+      ...raw,
+      features: raw.features.map((f) => ({
+        ...f,
+        properties: {
+          ...f.properties,
+          isSelected:
+            selectedNeighborhood?.id === f.properties.id ||
+            selectedMahalleFilter === f.properties.name,
+        },
+      })),
+    };
+  }, [neighborhoods, h3GeoJSON.features, selectedNeighborhood, selectedMahalleFilter]);
+
+  // Kandıra District Outer Administrative Boundary GeoJSON
+  const districtBoundaryGeoJSON = useMemo(() => {
+    return generateKandiraDistrictBoundaryGeoJSON(
+      neighborhoods,
+      h3GeoJSON.features
+    );
+  }, [neighborhoods, h3GeoJSON.features]);
 
   // Compute summary stats for legend & telemetry
   const h3Stats = useMemo(() => {
@@ -572,6 +606,9 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           id: 'h3-fill',
           type: 'fill',
           source: 'kandira-h3',
+          layout: {
+            visibility: showH3Grid ? 'visible' : 'none',
+          },
           paint: {
             'fill-color': buildColorExpression(activeLayer),
             'fill-opacity': 0.82,
@@ -583,6 +620,9 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           id: 'h3-outline',
           type: 'line',
           source: 'kandira-h3',
+          layout: {
+            visibility: showH3Grid ? 'visible' : 'none',
+          },
           paint: {
             'line-color': [
               'case',
@@ -597,6 +637,101 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
               0.8,
             ],
             'line-opacity': 0.82,
+          },
+        });
+
+        // Add Mahalle İdari Sınırları (Neighborhood Administrative Boundaries)
+        map.addSource('kandira-neighborhood-boundaries', {
+          type: 'geojson',
+          data: neighborhoodBoundariesGeoJSON as unknown as GeoJSON.FeatureCollection,
+        });
+
+        map.addLayer({
+          id: 'neighborhood-boundary-fill',
+          type: 'fill',
+          source: 'kandira-neighborhood-boundaries',
+          layout: {
+            visibility: showNeighborhoodBoundaries ? 'visible' : 'none',
+          },
+          paint: {
+            'fill-color': [
+              'case',
+              ['boolean', ['get', 'isSelected'], false],
+              '#fbbf24',
+              '#0f172a',
+            ],
+            'fill-opacity': [
+              'case',
+              ['boolean', ['get', 'isSelected'], false],
+              0.16,
+              0.01,
+            ],
+          },
+        });
+
+        map.addLayer({
+          id: 'neighborhood-boundary-line',
+          type: 'line',
+          source: 'kandira-neighborhood-boundaries',
+          layout: {
+            visibility: showNeighborhoodBoundaries ? 'visible' : 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': [
+              'case',
+              ['boolean', ['get', 'isSelected'], false],
+              '#f59e0b',
+              '#1e293b',
+            ],
+            'line-width': [
+              'case',
+              ['boolean', ['get', 'isSelected'], false],
+              2.8,
+              1.4,
+            ],
+            'line-dasharray': [2, 1.5],
+            'line-opacity': 0.9,
+          },
+        });
+
+        // Add Kandıra İlçe İdari Sınırı (District Outer Boundary)
+        map.addSource('kandira-district-boundary', {
+          type: 'geojson',
+          data: districtBoundaryGeoJSON as unknown as GeoJSON.FeatureCollection,
+        });
+
+        map.addLayer({
+          id: 'district-boundary-casing',
+          type: 'line',
+          source: 'kandira-district-boundary',
+          layout: {
+            visibility: showDistrictBoundary ? 'visible' : 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 4.8,
+            'line-opacity': 0.75,
+          },
+        });
+
+        map.addLayer({
+          id: 'district-boundary-line',
+          type: 'line',
+          source: 'kandira-district-boundary',
+          layout: {
+            visibility: showDistrictBoundary ? 'visible' : 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#be123c',
+            'line-width': 2.6,
+            'line-dasharray': [3, 1.5],
+            'line-opacity': 0.95,
           },
         });
 
@@ -648,6 +783,16 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             'text-halo-color': '#ffffff',
             'text-halo-width': 1.8,
           },
+        });
+
+        // Click on neighborhood boundary polygon when inspecting administrative areas
+        map.on('click', 'neighborhood-boundary-fill', (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const bId = String(e.features[0].properties?.id ?? '');
+          const matched = neighborhoods.find((n) => n.id === bId);
+          if (matched) {
+            onSelectNeighborhood(matched);
+          }
         });
 
         // Hover events on 2D H3 fill
@@ -748,6 +893,22 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
       source.setData(displayedH3GeoJSON as unknown as GeoJSON.FeatureCollection);
     }
 
+    const nbSource = map.getSource('kandira-neighborhood-boundaries') as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (nbSource) {
+      nbSource.setData(
+        neighborhoodBoundariesGeoJSON as unknown as GeoJSON.FeatureCollection
+      );
+    }
+
+    const dbSource = map.getSource('kandira-district-boundary') as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (dbSource) {
+      dbSource.setData(districtBoundaryGeoJSON as unknown as GeoJSON.FeatureCollection);
+    }
+
     const pinsSource = map.getSource('kandira-neighborhood-pins') as
       | maplibregl.GeoJSONSource
       | undefined;
@@ -757,6 +918,48 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
 
     if (map.getLayer('h3-fill')) {
       map.setPaintProperty('h3-fill', 'fill-color', buildColorExpression(activeLayer));
+      map.setLayoutProperty(
+        'h3-fill',
+        'visibility',
+        showH3Grid ? 'visible' : 'none'
+      );
+    }
+    if (map.getLayer('h3-outline')) {
+      map.setLayoutProperty(
+        'h3-outline',
+        'visibility',
+        showH3Grid ? 'visible' : 'none'
+      );
+    }
+
+    if (map.getLayer('neighborhood-boundary-fill')) {
+      map.setLayoutProperty(
+        'neighborhood-boundary-fill',
+        'visibility',
+        showNeighborhoodBoundaries ? 'visible' : 'none'
+      );
+    }
+    if (map.getLayer('neighborhood-boundary-line')) {
+      map.setLayoutProperty(
+        'neighborhood-boundary-line',
+        'visibility',
+        showNeighborhoodBoundaries ? 'visible' : 'none'
+      );
+    }
+
+    if (map.getLayer('district-boundary-casing')) {
+      map.setLayoutProperty(
+        'district-boundary-casing',
+        'visibility',
+        showDistrictBoundary ? 'visible' : 'none'
+      );
+    }
+    if (map.getLayer('district-boundary-line')) {
+      map.setLayoutProperty(
+        'district-boundary-line',
+        'visibility',
+        showDistrictBoundary ? 'visible' : 'none'
+      );
     }
 
     if (map.getLayer('kandira-neighborhood-circles')) {
@@ -773,7 +976,17 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
         showLabels ? 'visible' : 'none'
       );
     }
-  }, [displayedH3GeoJSON, neighborhoodPinsGeoJSON, activeLayer, showLabels]);
+  }, [
+    displayedH3GeoJSON,
+    neighborhoodBoundariesGeoJSON,
+    districtBoundaryGeoJSON,
+    neighborhoodPinsGeoJSON,
+    activeLayer,
+    showH3Grid,
+    showNeighborhoodBoundaries,
+    showDistrictBoundary,
+    showLabels,
+  ]);
 
   // Fly to selected neighborhood when filter or prop changes
   useEffect(() => {
@@ -941,7 +1154,108 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
           </div>
         </div>
 
-        {/* Row 2: Mahalle Filter (Including Border Hexagons), Kontur GeoJSON Tools & Tile Styles */}
+        {/* Row 2: Katmanlar (Aç/Kapat) — Administrative Boundaries & Map Overlay Toggles */}
+        <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mr-1 flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-emerald-600" />
+              Katmanlar (Aç/Kapat):
+            </span>
+
+            {/* Toggle 1: Kontur 400m H3 Altıgenleri */}
+            <button
+              type="button"
+              onClick={() => setShowH3Grid((prev) => !prev)}
+              aria-pressed={showH3Grid}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition ${
+                showH3Grid
+                  ? 'bg-sky-50 text-sky-900 border-sky-300 shadow-2xs'
+                  : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200/70'
+              }`}
+            >
+              {showH3Grid ? (
+                <Eye className="w-3.5 h-3.5 text-sky-600" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span>Kontur 400m H3 Altıgenleri</span>
+            </button>
+
+            {/* Toggle 2: İlçe İdari Sınırı */}
+            <button
+              type="button"
+              onClick={() => setShowDistrictBoundary((prev) => !prev)}
+              aria-pressed={showDistrictBoundary}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition ${
+                showDistrictBoundary
+                  ? 'bg-rose-50 text-rose-900 border-rose-300 shadow-2xs'
+                  : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200/70'
+              }`}
+            >
+              {showDistrictBoundary ? (
+                <Eye className="w-3.5 h-3.5 text-rose-600" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span className="w-3 h-0.5 bg-rose-600 rounded-full inline-block" />
+              <span>İlçe İdari Sınırı</span>
+            </button>
+
+            {/* Toggle 3: Mahalle İdari Sınırları */}
+            <button
+              type="button"
+              onClick={() => setShowNeighborhoodBoundaries((prev) => !prev)}
+              aria-pressed={showNeighborhoodBoundaries}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition ${
+                showNeighborhoodBoundaries
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-2xs'
+                  : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200/70'
+              }`}
+            >
+              {showNeighborhoodBoundaries ? (
+                <Eye className="w-3.5 h-3.5 text-amber-600" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span className="w-3 h-0.5 border-b-2 border-dashed border-slate-700 inline-block" />
+              <span>Mahalle İdari Sınırları (36)</span>
+            </button>
+
+            {/* Toggle 4: Mahalle İsimleri & Merkezler */}
+            <button
+              type="button"
+              onClick={() => setShowLabels((prev) => !prev)}
+              aria-pressed={showLabels}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition ${
+                showLabels
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-300 shadow-2xs'
+                  : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200/70'
+              }`}
+            >
+              {showLabels ? (
+                <Eye className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span>Mahalle İsimleri & Merkezler</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[10.5px] text-slate-500 font-medium">
+            <span>İdari Sınır Kaynağı:</span>
+            <a
+              href="https://www.openstreetmap.org/#map=11/41.0700/30.1500"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 text-sky-700 hover:text-sky-900 font-semibold underline"
+            >
+              <span>OSM Mülki Sınırlar</span>
+              <ExternalLink className="w-2.5 h-2.5" />
+            </a>
+          </div>
+        </div>
+
+        {/* Row 3: Mahalle Filter (Including Border Hexagons), Kontur GeoJSON Tools & Tile Styles */}
         <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2.5 text-xs">
           {/* Left: Mahalle Filter Selector */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -1142,8 +1456,18 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             ))}
           </div>
 
-          {/* H3 Cell Statistics Footer */}
+          {/* Boundary & H3 Cell Statistics Footer */}
           <div className="mt-2.5 pt-2 border-t border-slate-800 flex flex-col gap-1 text-[10px] font-mono text-slate-400">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-3 h-0.5 bg-rose-500 inline-block" />
+                <span className="text-slate-300">İlçe Sınırı</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-3 h-0.5 border-b border-dashed border-slate-300 inline-block" />
+                <span className="text-slate-300">36 Mahalle İdari Sınırı</span>
+              </span>
+            </div>
             <div className="flex items-center justify-between">
               <span>
                 Gösterilen: <strong className="text-white">{h3Stats.totalCells}</strong> H3 Hücre
@@ -1385,6 +1709,32 @@ export const H3MapView: React.FC<H3MapViewProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Bottom Data Sources Strip (Mini Source Links) */}
+      <div className="bg-slate-950 border-t border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-bold text-slate-300 flex items-center gap-1 mr-1">
+            <Database className="w-3 h-3 text-sky-400" />
+            Veri Kaynakları:
+          </span>
+          {MINI_SOURCE_LINKS.map((link) => (
+            <a
+              key={link.id}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={link.fullLabel}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 text-sky-300 hover:text-sky-200 border border-slate-800 transition font-medium"
+            >
+              <span>{link.shortLabel}</span>
+              <ExternalLink className="w-2.5 h-2.5 opacity-75" />
+            </a>
+          ))}
+        </div>
+        <span className="text-[10px] font-mono text-slate-500">
+          {KONTUR_DATASET_METADATA.license} • H3 Res {resolution}
+        </span>
       </div>
     </div>
   );

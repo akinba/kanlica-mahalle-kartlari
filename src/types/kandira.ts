@@ -171,3 +171,32 @@ export interface DistrictSummaryMetrics {
     }
   >;
 }
+
+export interface LayerVisibilityState {
+  showH3Grid: boolean;
+  showDistrictBoundary: boolean;
+  showNeighborhoodBoundaries: boolean;
+  showNeighborhoodPins: boolean;
+  showH3Values: boolean;
+}
+
+export interface NeighborhoodBoundaryProperties {
+  id: string;
+  code: string;
+  name: string;
+  zone: NeighborhoodZone;
+  zoneLabel: string;
+  areaKm2: number;
+  centerCoordinates: [number, number];
+  cellCount: number;
+  isSelected?: boolean;
+}
+
+export interface DistrictBoundaryProperties {
+  id: string;
+  name: string;
+  province: string;
+  country: string;
+  totalAreaKm2: number;
+  totalNeighborhoods: number;
+}
