@@ -21,15 +21,15 @@ const combinedJs = jsFiles
   .map((f) => fs.readFileSync(path.join(assetsDir, f), 'utf-8'))
   .join('\n');
 
-// Remove external stylesheet link tags pointing to /assets/
+// Remove external stylesheet link tags pointing to /assets/ or ./assets/
 html = html.replace(
-  /<link\s+[^>]*rel=["']stylesheet["'][^>]*href=["']\/assets\/[^"']+\.css["'][^>]*>/gi,
+  /<link\s+[^>]*href=["']\.?\/assets\/[^"']+\.css["'][^>]*>/gi,
   () => `<style>\n${combinedCss}\n</style>`
 );
 
-// Remove external module script tags pointing to /assets/ and inline at end of body
+// Remove external module script tags pointing to /assets/ or ./assets/ and inline at end of body
 html = html.replace(
-  /<script\s+[^>]*src=["']\/assets\/[^"']+\.js["'][^>]*><\/script>/gi,
+  /<script\s+[^>]*src=["']\.?\/assets\/[^"']+\.js["'][^>]*><\/script>/gi,
   () => ''
 );
 

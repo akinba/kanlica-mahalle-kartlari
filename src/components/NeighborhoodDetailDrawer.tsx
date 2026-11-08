@@ -455,10 +455,12 @@ export const NeighborhoodDetailDrawer: React.FC<NeighborhoodDetailDrawerProps> =
                 </div>
                 <div className="mt-1 flex items-baseline justify-between">
                   <span className="text-sm text-slate-500">
-                    2021: %{neighborhood.landUse.forestPct2021}
+                    2021: %{neighborhood.landUse.forestPct2021} (
+                    {(neighborhood.areaKm2 * neighborhood.landUse.forestPct2021).toFixed(1)} ha)
                   </span>
                   <span className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400">
-                    2025: %{neighborhood.landUse.forestPct2025}
+                    2025: %{neighborhood.landUse.forestPct2025} (
+                    {(neighborhood.areaKm2 * neighborhood.landUse.forestPct2025).toFixed(1)} ha)
                   </span>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-emerald-950/10 dark:bg-emerald-950 overflow-hidden">
@@ -475,10 +477,18 @@ export const NeighborhoodDetailDrawer: React.FC<NeighborhoodDetailDrawerProps> =
                 </div>
                 <div className="mt-1 flex items-baseline justify-between">
                   <span className="text-sm text-slate-500">
-                    2021: %{neighborhood.landUse.agricultureHazelnutPct2021}
+                    2021: %{neighborhood.landUse.agricultureHazelnutPct2021} (
+                    {(
+                      neighborhood.areaKm2 * neighborhood.landUse.agricultureHazelnutPct2021
+                    ).toFixed(1)}{' '}
+                    ha)
                   </span>
                   <span className="text-lg font-extrabold text-amber-700 dark:text-amber-400">
-                    2025: %{neighborhood.landUse.agricultureHazelnutPct2025}
+                    2025: %{neighborhood.landUse.agricultureHazelnutPct2025} (
+                    {(
+                      neighborhood.areaKm2 * neighborhood.landUse.agricultureHazelnutPct2025
+                    ).toFixed(1)}{' '}
+                    ha)
                   </span>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-amber-950/10 dark:bg-amber-950 overflow-hidden">
@@ -497,10 +507,12 @@ export const NeighborhoodDetailDrawer: React.FC<NeighborhoodDetailDrawerProps> =
                 </div>
                 <div className="mt-1 flex items-baseline justify-between">
                   <span className="text-sm text-slate-500">
-                    2021: %{neighborhood.landUse.builtUpPct2021}
+                    2021: %{neighborhood.landUse.builtUpPct2021} (
+                    {(neighborhood.areaKm2 * neighborhood.landUse.builtUpPct2021).toFixed(1)} ha)
                   </span>
                   <span className="text-lg font-extrabold text-rose-600 dark:text-rose-400">
-                    2025: %{neighborhood.landUse.builtUpPct2025} (+
+                    2025: %{neighborhood.landUse.builtUpPct2025} (
+                    {(neighborhood.areaKm2 * neighborhood.landUse.builtUpPct2025).toFixed(1)} ha, +
                     {neighborhood.landUse.imperviousSurfaceChangePct}%)
                   </span>
                 </div>

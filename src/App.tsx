@@ -749,14 +749,14 @@ export function App() {
                   'akdurak',
                   'orhan',
                   'kefken',
-                  'kerpe',
+                  'kincilli',
                   'cebeci',
                   'bagirganli',
                   'babali',
                   'kaymaz',
                   'kirkarmut',
-                  'saricaali',
-                  'akcaova',
+                  'karaagac',
+                  'sarniclar',
                   'deliveli',
                 ].map((id) => {
                   const target = KANDIRA_NEIGHBORHOODS.find((n) => n.id === id);

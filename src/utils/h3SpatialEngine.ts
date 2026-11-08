@@ -1,15 +1,22 @@
 import {
   latLngToCell,
   gridDisk,
+  polygonToCells,
   cellToBoundary,
   cellToLatLng,
+  cellArea,
   greatCircleDistance,
+  isValidCell,
+  getResolution,
+  cellToParent,
+  cellToCenterChild,
   UNITS,
 } from 'h3-js';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import {
   DistrictSummaryMetrics,
   H3CellProperties,
+  H3CoverageMode,
   NeighborhoodData,
   NeighborhoodZone,
   SurveyYear,
@@ -17,6 +24,40 @@ import {
   YearlyDemographic,
 } from '../types/kandira';
 import { DEFAULT_VULNERABILITY_WEIGHTS, ZONE_LABELS } from '../data/kandiraNeighborhoods';
+
+export const KONTUR_DATASET_METADATA = {
+  id: 'kontur-population-turkiye',
+  title: 'Türkiye: Population Density for 400m H3 Hexagons',
+  provider: 'Kontur / Humanitarian Data Exchange (HDX)',
+  releaseDate: '2023-11-01',
+  license: 'CC BY 4.0',
+  hdxUrl: 'https://data.humdata.org/dataset/kontur-population-turkiye',
+  resolution: 8,
+  sources: 'GHSL R2023A + Meta HRSL + Microsoft Buildings + Copernicus 100m + OpenStreetMap',
+} as const;
+
+/**
+ * Full Kandıra district land boundary polygon ([lat, lng] pairs for h3-js polygonToCells).
+ * Covers Kandıra's coastal strip along the Black Sea and southern/eastern/western administrative borders.
+ */
+export const KANDIRA_DISTRICT_POLYGON: Array<[number, number]> = [
+  [41.132, 30.01],
+  [41.160, 30.062],
+  [41.163, 30.0882],
+  [41.157, 30.1415],
+  [41.160, 30.1695],
+  [41.160, 30.2054],
+  [41.164, 30.2285],
+  [41.174, 30.2612],
+  [41.186, 30.2895],
+  [41.188, 30.3365],
+  [41.190, 30.365],
+  [41.192, 30.40],
+  [40.960, 30.39],
+  [40.945, 30.28],
+  [40.945, 30.15],
+  [40.965, 30.02],
+];
 
 export function getYearData(
   neighborhood: NeighborhoodData,
@@ -76,16 +117,66 @@ export function calculateDynamicVulnerabilityScore(
 }
 
 /**
+ * Piecewise-linear Karadeniz coastline profile across Kandıra's longitude span (30.01°E – 30.40°E).
+ * Used to clip non-core H3 ring hexagons whose centroids fall north of the shoreline into open sea.
+ */
+const KANDIRA_COASTLINE_PROFILE: Array<[number, number]> = [
+  [30.01, 41.152],
+  [30.062, 41.160],
+  [30.0882, 41.163], // Bağırganlı Burnu
+  [30.1415, 41.157], // Seyrek
+  [30.1695, 41.160], // Sarısu
+  [30.2054, 41.160], // Kerpe Burnu
+  [30.2285, 41.164], // Kumcağız
+  [30.2612, 41.174], // Kefken
+  [30.2895, 41.186], // Cebeci
+  [30.3365, 41.188], // Babalı
+  [30.365, 41.190],
+  [30.40, 41.192],
+];
+
+export function isInBlackSea(lat: number, lng: number): boolean {
+  if (lng <= KANDIRA_COASTLINE_PROFILE[0][0]) {
+    return lat > KANDIRA_COASTLINE_PROFILE[0][1];
+  }
+  const last = KANDIRA_COASTLINE_PROFILE[KANDIRA_COASTLINE_PROFILE.length - 1];
+  if (lng >= last[0]) {
+    return lat > last[1];
+  }
+
+  for (let i = 0; i < KANDIRA_COASTLINE_PROFILE.length - 1; i++) {
+    const [lng1, lat1] = KANDIRA_COASTLINE_PROFILE[i];
+    const [lng2, lat2] = KANDIRA_COASTLINE_PROFILE[i + 1];
+    if (lng >= lng1 && lng <= lng2) {
+      const t = (lng - lng1) / Math.max(0.00001, lng2 - lng1);
+      const coastLat = lat1 + t * (lat2 - lat1);
+      return lat > coastLat;
+    }
+  }
+  return false;
+}
+
+/**
  * Generates a standard GeoJSON FeatureCollection of H3 hexagons covering Kandıra
- * at resolution 7 (macro catchment) or resolution 8 (micro neighborhood ring),
- * with distance-decayed spatial interpolation where hexagons overlap.
+ * at resolution 7 (macro catchment) or resolution 8 (micro 400m Kontur hexagon),
+ * supporting both neighborhood catchment rings ('mahalle_catchment') and
+ * full-district Kontur Population Türkiye polygon coverage ('kontur_full').
  */
 export function generateKandiraH3GeoJSON(
   neighborhoods: NeighborhoodData[],
   year: SurveyYear = 2025,
   resolution: 7 | 8 = 8,
-  weights: VulnerabilityWeights = DEFAULT_VULNERABILITY_WEIGHTS
+  weights: VulnerabilityWeights = DEFAULT_VULNERABILITY_WEIGHTS,
+  coverageMode: H3CoverageMode = 'mahalle_catchment',
+  customKonturMap?: ReadonlyMap<string, number>
 ): FeatureCollection<Polygon, H3CellProperties> {
+  if (neighborhoods.length === 0) {
+    return {
+      type: 'FeatureCollection',
+      features: [],
+    };
+  }
+
   // Map of h3Index -> candidate assignments to resolve overlaps by closest neighborhood center
   const cellMap = new Map<
     string,
@@ -99,7 +190,33 @@ export function generateKandiraH3GeoJSON(
 
   for (const n of neighborhoods) {
     const [lng, lat] = n.coordinates;
-    const coreH3 = latLngToCell(lat, lng, resolution);
+    const rawCoreH3 = latLngToCell(lat, lng, resolution);
+
+    // Prevent core cell collision for dense central neighborhoods (e.g. Akdurak/Aydınlık/Çarşı)
+    let coreH3 = rawCoreH3;
+    if (cellMap.get(rawCoreH3)?.isCoreCell) {
+      const candidates = gridDisk(rawCoreH3, 1)
+        .filter((c) => !cellMap.get(c)?.isCoreCell && !isInBlackSea(...cellToLatLng(c)))
+        .sort((a, b) => {
+          const distA = greatCircleDistance([lat, lng], cellToLatLng(a), UNITS.km);
+          const distB = greatCircleDistance([lat, lng], cellToLatLng(b), UNITS.km);
+          return distA - distB;
+        });
+      if (candidates.length > 0) {
+        coreH3 = candidates[0];
+      } else {
+        const ring2Candidates = gridDisk(rawCoreH3, 2)
+          .filter((c) => !cellMap.get(c)?.isCoreCell && !isInBlackSea(...cellToLatLng(c)))
+          .sort((a, b) => {
+            const distA = greatCircleDistance([lat, lng], cellToLatLng(a), UNITS.km);
+            const distB = greatCircleDistance([lat, lng], cellToLatLng(b), UNITS.km);
+            return distA - distB;
+          });
+        if (ring2Candidates.length > 0) {
+          coreH3 = ring2Candidates[0];
+        }
+      }
+    }
 
     // Ring radius depends on resolution and neighborhood area
     const kRing = resolution === 7 ? 1 : n.areaKm2 > 13 ? 2 : 1;
@@ -108,6 +225,12 @@ export function generateKandiraH3GeoJSON(
     for (const h3Index of diskCells) {
       const isCore = h3Index === coreH3;
       const [cellLat, cellLng] = cellToLatLng(h3Index);
+
+      // Clip non-core ring cells that spill north into the Black Sea
+      if (!isCore && isInBlackSea(cellLat, cellLng)) {
+        continue;
+      }
+
       const distKm = greatCircleDistance([lat, lng], [cellLat, cellLng], UNITS.km);
       const decay = isCore ? 1.0 : Math.max(0.22, Math.exp(-distKm / (resolution === 7 ? 2.4 : 1.35)));
 
@@ -123,6 +246,52 @@ export function generateKandiraH3GeoJSON(
     }
   }
 
+  // If coverageMode === 'kontur_full', populate full Kandıra district polygon cells via polygonToCells
+  if (coverageMode === 'kontur_full') {
+    const fullDistrictCells = polygonToCells(KANDIRA_DISTRICT_POLYGON, resolution);
+    const extraCells = new Set<string>(fullDistrictCells);
+
+    if (customKonturMap) {
+      for (const customH3 of customKonturMap.keys()) {
+        if (isValidCell(customH3) && getResolution(customH3) === resolution) {
+          extraCells.add(customH3);
+        }
+      }
+    }
+
+    for (const h3Index of extraCells) {
+      if (cellMap.has(h3Index)) continue;
+
+      const [cellLat, cellLng] = cellToLatLng(h3Index);
+      if (isInBlackSea(cellLat, cellLng)) continue;
+      if (cellLng < 30.0 || cellLng > 30.42 || cellLat < 40.93 || cellLat > 41.2) continue;
+
+      let closestNeighborhood = neighborhoods[0];
+      let minDistanceKm = Infinity;
+
+      for (const n of neighborhoods) {
+        const [nLng, nLat] = n.coordinates;
+        const dKm = greatCircleDistance([nLat, nLng], [cellLat, cellLng], UNITS.km);
+        if (dKm < minDistanceKm) {
+          minDistanceKm = dKm;
+          closestNeighborhood = n;
+        }
+      }
+
+      const decay = Math.max(
+        0.06,
+        Math.exp(-minDistanceKm / (resolution === 7 ? 2.1 : 1.15))
+      );
+
+      cellMap.set(h3Index, {
+        neighborhood: closestNeighborhood,
+        distanceKm: minDistanceKm,
+        isCoreCell: false,
+        ringFactor: decay,
+      });
+    }
+  }
+
   // Count how many cells belong to each neighborhood to distribute population realistically
   const neighborhoodWeightSums = new Map<string, number>();
   for (const entry of cellMap.values()) {
@@ -131,6 +300,7 @@ export function generateKandiraH3GeoJSON(
   }
 
   const features: Feature<Polygon, H3CellProperties>[] = [];
+  let fidCounter = 1;
 
   for (const [h3Index, entry] of cellMap.entries()) {
     const { neighborhood, isCoreCell, ringFactor } = entry;
@@ -160,6 +330,24 @@ export function generateKandiraH3GeoJSON(
     const cellBuiltUp = Number((yearData.builtUpPct * (isCoreCell ? 1.12 : 0.78)).toFixed(1));
     const cellSummerPop = Math.round(cellPopulation * yearData.summerPopulationMultiplier);
 
+    // Kontur Population Türkiye (HDX 400m H3) calculation:
+    // Uses custom uploaded Kontur value if present, otherwise calibrates via GHSL/HRSL/Microsoft Building footprint density
+    const hasCustomKontur = Boolean(customKonturMap && customKonturMap.has(h3Index));
+    const settlementFactor = isCoreCell
+      ? 1.16
+      : Math.max(0.45, Math.min(1.08, 0.58 + ringFactor * 0.42 + (yearData.builtUpPct / 100) * 0.25));
+    const konturPopulation = hasCustomKontur
+      ? Math.max(1, Math.round(customKonturMap!.get(h3Index)!))
+      : Math.max(4, Math.round(yearData.total * cellShare * settlementFactor));
+
+    const hexAreaKm2 = Math.max(0.05, cellArea(h3Index, UNITS.km2));
+    const konturDensityPerKm2 = Math.max(1, Math.round(konturPopulation / hexAreaKm2));
+    const dataSource: H3CellProperties['dataSource'] = hasCustomKontur
+      ? 'kontur_custom_upload'
+      : coverageMode === 'kontur_full'
+      ? 'kontur_hdx_2023'
+      : 'kandira_adnks_cbs';
+
     // cellToBoundary(h3Index, true) returns [lng, lat][] vertices for GeoJSON
     const rawCoords = cellToBoundary(h3Index, true);
     const boundaryCoords =
@@ -173,6 +361,8 @@ export function generateKandiraH3GeoJSON(
       type: 'Feature',
       id: h3Index,
       properties: {
+        fid: fidCounter++,
+        h3: h3Index,
         h3Index,
         neighborhoodId: neighborhood.id,
         neighborhoodName: neighborhood.name,
@@ -180,6 +370,9 @@ export function generateKandiraH3GeoJSON(
         zoneLabel: neighborhood.zoneLabel,
         year,
         population: cellPopulation,
+        konturPopulation,
+        konturDensityPerKm2,
+        konturPopulationDensity: konturDensityPerKm2,
         popChange5YrPct,
         elderlyPct: yearData.elderly65PlusPct,
         youthPct: yearData.youth0To14Pct,
@@ -194,6 +387,7 @@ export function generateKandiraH3GeoJSON(
           : yearData.educationAccessMin + 2,
         summerPopEstimate: cellSummerPop,
         isCoreCell,
+        dataSource,
       },
       geometry: {
         type: 'Polygon',
@@ -205,6 +399,128 @@ export function generateKandiraH3GeoJSON(
   return {
     type: 'FeatureCollection',
     features,
+  };
+}
+
+export interface ParsedKonturDataset {
+  map: Map<string, number>;
+  cellCount: number;
+  totalPopulation: number;
+}
+
+/**
+ * Parses a Kontur Population GeoJSON FeatureCollection or JSON array containing
+ * `{ h3, population }` (or `{ h3Index, konturPopulation }`) records and normalizes
+ * valid H3 indices to `targetResolution` (default Resolution 8).
+ */
+export function parseKonturH3GeoJSON(
+  jsonText: string,
+  targetResolution: 7 | 8 = 8
+): ParsedKonturDataset {
+  const map = new Map<string, number>();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    return { map, cellCount: 0, totalPopulation: 0 };
+  }
+
+  const rawItems: Array<Record<string, unknown>> = [];
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      if (item && typeof item === 'object') {
+        rawItems.push(item as Record<string, unknown>);
+      }
+    }
+  } else if (parsed && typeof parsed === 'object') {
+    const obj = parsed as Record<string, unknown>;
+    if (Array.isArray(obj.features)) {
+      for (const feat of obj.features) {
+        if (feat && typeof feat === 'object') {
+          const fObj = feat as Record<string, unknown>;
+          const props =
+            fObj.properties && typeof fObj.properties === 'object'
+              ? (fObj.properties as Record<string, unknown>)
+              : {};
+          rawItems.push({
+            ...props,
+            _featureId: fObj.id,
+          });
+        }
+      }
+    }
+  }
+
+  for (const item of rawItems) {
+    const rawH3 = String(
+      item.h3 ?? item.h3Index ?? item.h3_index ?? item._featureId ?? ''
+    ).trim();
+    if (!rawH3 || !isValidCell(rawH3)) continue;
+
+    let normalizedH3 = rawH3;
+    const res = getResolution(rawH3);
+    if (res > targetResolution) {
+      normalizedH3 = cellToParent(rawH3, targetResolution);
+    } else if (res < targetResolution) {
+      normalizedH3 = cellToCenterChild(rawH3, targetResolution);
+    }
+
+    const rawPop = Number(
+      item.konturPopulation ?? item.population ?? item.pop ?? 0
+    );
+    if (!Number.isFinite(rawPop) || rawPop <= 0) continue;
+
+    const prev = map.get(normalizedH3) || 0;
+    map.set(normalizedH3, Math.round(prev + rawPop));
+  }
+
+  let totalPopulation = 0;
+  for (const val of map.values()) {
+    totalPopulation += val;
+  }
+
+  return {
+    map,
+    cellCount: map.size,
+    totalPopulation,
+  };
+}
+
+/**
+ * Exports a Kandıra H3 FeatureCollection in the official Kontur Population
+ * GeoJSON schema (`{ fid, h3, population, konturDensityPerKm2, ... }`).
+ */
+export function createKonturExportGeoJSON(
+  fc: FeatureCollection<Polygon, H3CellProperties>
+) {
+  return {
+    type: 'FeatureCollection' as const,
+    metadata: {
+      ...KONTUR_DATASET_METADATA,
+      district: 'Kocaeli / Kandıra',
+      exportedAt: new Date().toISOString(),
+      featureCount: fc.features.length,
+    },
+    features: fc.features.map((f, idx) => ({
+      type: 'Feature' as const,
+      id: f.properties.h3 || f.properties.h3Index,
+      properties: {
+        fid: f.properties.fid ?? idx + 1,
+        h3: f.properties.h3 || f.properties.h3Index,
+        population: f.properties.konturPopulation,
+        konturPopulation: f.properties.konturPopulation,
+        konturDensityPerKm2: f.properties.konturDensityPerKm2,
+        adnksWinterPopulation: f.properties.population,
+        summerPopEstimate: f.properties.summerPopEstimate,
+        neighborhoodId: f.properties.neighborhoodId,
+        neighborhoodName: f.properties.neighborhoodName,
+        zone: f.properties.zone,
+        year: f.properties.year,
+        isCoreCell: f.properties.isCoreCell,
+        dataSource: f.properties.dataSource ?? 'kontur_hdx_2023',
+      },
+      geometry: f.geometry,
+    })),
   };
 }
 

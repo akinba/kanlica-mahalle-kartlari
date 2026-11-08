@@ -108,7 +108,11 @@ export interface VulnerabilityWeights {
   landPressureWeight: number;
 }
 
+export type H3CoverageMode = 'kontur_full' | 'mahalle_catchment';
+
 export interface H3CellProperties {
+  fid?: number;
+  h3: string; // Kontur codebook standard H3 attribute
   h3Index: string;
   neighborhoodId: string;
   neighborhoodName: string;
@@ -116,6 +120,9 @@ export interface H3CellProperties {
   zoneLabel: string;
   year: SurveyYear;
   population: number;
+  konturPopulation: number; // Kontur HDX 400m H3 population count
+  konturDensityPerKm2: number; // Population per km² within the H3 cell
+  konturPopulationDensity?: number; // Kontur population density per km² (alias for map layers)
   popChange5YrPct: number;
   elderlyPct: number;
   youthPct: number;
@@ -128,6 +135,7 @@ export interface H3CellProperties {
   educationAccessMin: number;
   summerPopEstimate: number;
   isCoreCell: boolean;
+  dataSource?: 'kontur_hdx_2023' | 'kandira_adnks_cbs' | 'kontur_custom_upload';
 }
 
 export interface DistrictSummaryMetrics {
