@@ -1547,7 +1547,7 @@ runTest(
       for (const f of fc.features) {
         const [lat, lng] = cellToLatLng(f.properties.h3Index);
         assert(
-          lng >= 30.0 && lng <= 30.42 && lat >= 40.93 && lat <= 41.2,
+          lng >= 29.80 && lng <= 30.42 && lat >= 40.86 && lat <= 41.23,
           `H3 cell ${f.properties.h3Index} centroid (${lat}, ${lng}) out of Kandıra bounds`
         );
       }

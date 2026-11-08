@@ -82,7 +82,7 @@ export const NEIGHBORHOOD_TO_OSM_NAME: Record<string, string> = {
   babali: 'Babalı Mahallesi',
   kumcagiz: 'Kurtyeri Mahallesi',
   kurtyeri: 'Kurtyeri Mahallesi',
-  seyrek: 'Pınarlı Mahallesi',
+  seyrek: 'Çalköy Mahallesi',
   pinarli: 'Pınarlı Mahallesi',
   sarisu: 'Doğancılı Mahallesi',
   karaagac: 'Karaağaç Mahallesi',
@@ -383,24 +383,11 @@ const KANDIRA_COASTLINE_PROFILE: Array<[number, number]> = [
 ];
 
 export function isInBlackSea(lat: number, lng: number): boolean {
-  if (lng <= KANDIRA_COASTLINE_PROFILE[0][0]) {
-    return lat > KANDIRA_COASTLINE_PROFILE[0][1];
+  const officialGeom = kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
+  if (officialGeom && pointInGeometry([lng, lat], officialGeom)) {
+    return false;
   }
-  const last = KANDIRA_COASTLINE_PROFILE[KANDIRA_COASTLINE_PROFILE.length - 1];
-  if (lng >= last[0]) {
-    return lat > last[1];
-  }
-
-  for (let i = 0; i < KANDIRA_COASTLINE_PROFILE.length - 1; i++) {
-    const [lng1, lat1] = KANDIRA_COASTLINE_PROFILE[i];
-    const [lng2, lat2] = KANDIRA_COASTLINE_PROFILE[i + 1];
-    if (lng >= lng1 && lng <= lng2) {
-      const t = (lng - lng1) / Math.max(0.00001, lng2 - lng1);
-      const coastLat = lat1 + t * (lat2 - lat1);
-      return lat > coastLat;
-    }
-  }
-  return false;
+  return lat >= 41.10;
 }
 
 /**
@@ -435,6 +422,8 @@ export function generateKandiraH3GeoJSON(
     }
   >();
 
+  const officialGeom = kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
+
   for (const n of neighborhoods) {
     const [lng, lat] = n.coordinates;
     const rawCoreH3 = latLngToCell(lat, lng, resolution);
@@ -443,7 +432,7 @@ export function generateKandiraH3GeoJSON(
     let coreH3 = rawCoreH3;
     if (cellMap.get(rawCoreH3)?.isCoreCell) {
       const candidates = gridDisk(rawCoreH3, 1)
-        .filter((c) => !cellMap.get(c)?.isCoreCell && !isInBlackSea(...cellToLatLng(c)))
+        .filter((c) => !cellMap.get(c)?.isCoreCell && (!officialGeom || pointInGeometry(cellToLatLng(c).reverse() as [number, number], officialGeom)))
         .sort((a, b) => {
           const distA = greatCircleDistance([lat, lng], cellToLatLng(a), UNITS.km);
           const distB = greatCircleDistance([lat, lng], cellToLatLng(b), UNITS.km);
@@ -453,7 +442,7 @@ export function generateKandiraH3GeoJSON(
         coreH3 = candidates[0];
       } else {
         const ring2Candidates = gridDisk(rawCoreH3, 2)
-          .filter((c) => !cellMap.get(c)?.isCoreCell && !isInBlackSea(...cellToLatLng(c)))
+          .filter((c) => !cellMap.get(c)?.isCoreCell && (!officialGeom || pointInGeometry(cellToLatLng(c).reverse() as [number, number], officialGeom)))
           .sort((a, b) => {
             const distA = greatCircleDistance([lat, lng], cellToLatLng(a), UNITS.km);
             const distB = greatCircleDistance([lat, lng], cellToLatLng(b), UNITS.km);
@@ -473,7 +462,10 @@ export function generateKandiraH3GeoJSON(
       const isCore = h3Index === coreH3;
       const [cellLat, cellLng] = cellToLatLng(h3Index);
 
-      // Clip non-core ring cells that spill north into the Black Sea
+      // Strict district boundary check: no non-core cells outside the official admin_level=6 district!
+      if (!isCore && officialGeom && !pointInGeometry([cellLng, cellLat], officialGeom)) {
+        continue;
+      }
       if (!isCore && isInBlackSea(cellLat, cellLng)) {
         continue;
       }
@@ -497,7 +489,6 @@ export function generateKandiraH3GeoJSON(
   if (coverageMode === 'kontur_full') {
     const extraCells = new Set<string>();
 
-    const officialGeom = kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
     if (officialGeom && officialGeom.type === 'MultiPolygon') {
       for (const poly of officialGeom.coordinates) {
         if (poly.length > 0) {
@@ -526,8 +517,9 @@ export function generateKandiraH3GeoJSON(
       if (cellMap.has(h3Index)) continue;
 
       const [cellLat, cellLng] = cellToLatLng(h3Index);
+      // Strict Point-in-Polygon: cell center must be inside official admin_level=6 district polygon
+      if (officialGeom && !pointInGeometry([cellLng, cellLat], officialGeom)) continue;
       if (isInBlackSea(cellLat, cellLng)) continue;
-      if (cellLng < 30.0 || cellLng > 30.42 || cellLat < 40.93 || cellLat > 41.2) continue;
 
       // Point-in-Polygon check to find which official neighborhood polygon contains this cell centroid
       const containingNeighborhood = findNeighborhoodContainingPoint(
@@ -564,6 +556,17 @@ export function generateKandiraH3GeoJSON(
         isCoreCell: false,
         ringFactor: decay,
       });
+    }
+  }
+
+  // Strict Point-in-Polygon cleanup: guarantee zero non-core cells fall outside district polygon
+  if (officialGeom) {
+    for (const [h3Index, entry] of cellMap.entries()) {
+      if (entry.isCoreCell) continue;
+      const [cellLat, cellLng] = cellToLatLng(h3Index);
+      if (!pointInGeometry([cellLng, cellLat], officialGeom) || isInBlackSea(cellLat, cellLng)) {
+        cellMap.delete(h3Index);
+      }
     }
   }
 
@@ -634,19 +637,66 @@ export function generateKandiraH3GeoJSON(
 
     // Accurate Point-in-Polygon intersection for cell centroid and hexagon vertices
     const [cellLat, cellLng] = cellToLatLng(h3Index);
-    const pipIntersecting = findNeighborhoodsIntersectingHex(
-      cellLng,
-      cellLat,
-      boundaryCoords,
-      neighborhoods,
-      neighborhood
-    );
 
-    const neighborhoodNames = Array.from(
-      new Set([neighborhood.name, ...pipIntersecting.map((o) => o.name)])
-    );
+    let containingOsm: IndexedOsmBoundary | undefined;
+    for (const item of INDEXED_OSM_NEIGHBORHOODS) {
+      if (
+        cellLng >= item.bbox.minLng &&
+        cellLng <= item.bbox.maxLng &&
+        cellLat >= item.bbox.minLat &&
+        cellLat <= item.bbox.maxLat &&
+        pointInGeometry([cellLng, cellLat], item.geometry)
+      ) {
+        containingOsm = item;
+        break;
+      }
+    }
+
+    const primaryNeighborhood = containingOsm
+      ? (containingOsm.shortName || containingOsm.name.replace(/ Mahallesi$/, ''))
+      : neighborhood.name;
+
+    const overlappingNames = new Set<string>();
+    overlappingNames.add(primaryNeighborhood);
+
+    for (const item of INDEXED_OSM_NEIGHBORHOODS) {
+      const sName = item.shortName || item.name.replace(/ Mahallesi$/, '');
+      if (overlappingNames.has(sName)) continue;
+
+      let touches = false;
+      for (const pt of boundaryCoords) {
+        if (
+          pt[0] >= item.bbox.minLng &&
+          pt[0] <= item.bbox.maxLng &&
+          pt[1] >= item.bbox.minLat &&
+          pt[1] <= item.bbox.maxLat &&
+          pointInGeometry([pt[0], pt[1]], item.geometry)
+        ) {
+          touches = true;
+          break;
+        }
+      }
+      if (touches) {
+        overlappingNames.add(sName);
+      }
+    }
+    const neighborhoodNames = Array.from(overlappingNames);
+
     const zones = Array.from(
-      new Set([neighborhood.zone, ...pipIntersecting.map((o) => o.zone)])
+      new Set([
+        neighborhood.zone,
+        ...neighborhoodNames
+          .map((name) => {
+            const matched = neighborhoods.find(
+              (n) =>
+                n.name.toLowerCase() === name.toLowerCase() ||
+                n.name.toLowerCase().startsWith(name.toLowerCase()) ||
+                name.toLowerCase().startsWith(n.name.toLowerCase())
+            );
+            return matched?.zone;
+          })
+          .filter((z): z is NeighborhoodZone => Boolean(z)),
+      ])
     );
 
     const seasonalWorkersEst = Math.max(
@@ -667,7 +717,7 @@ export function generateKandiraH3GeoJSON(
         h3Index,
         neighborhoodId: neighborhood.id,
         neighborhoodName: neighborhood.name,
-        primaryNeighborhood: neighborhood.name,
+        primaryNeighborhood,
         neighborhoodNames,
         zone: neighborhood.zone,
         zoneLabel: neighborhood.zoneLabel,
