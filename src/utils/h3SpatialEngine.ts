@@ -27,6 +27,10 @@ import {
   YearlyDemographic,
 } from '../types/kandira';
 import { DEFAULT_VULNERABILITY_WEIGHTS, ZONE_LABELS } from '../data/kandiraNeighborhoods';
+import {
+  kandiraDistrictAdmin6GeoJSON,
+  kandiraNeighborhoodsAdmin8GeoJSON,
+} from '../data/geo';
 
 export const KONTUR_DATASET_METADATA = {
   id: 'kontur-population-turkiye',
@@ -61,6 +65,246 @@ export const KANDIRA_DISTRICT_POLYGON: Array<[number, number]> = [
   [40.945, 30.15],
   [40.965, 30.02],
 ];
+
+/**
+ * Official OSM mapping between application neighborhood ID and official admin_level=8 name
+ */
+export const NEIGHBORHOOD_TO_OSM_NAME: Record<string, string> = {
+  akdurak: 'Akdurak Mahallesi',
+  aydinlik: 'Aydınlık Mahallesi',
+  carsi: 'Çarşı Mahallesi',
+  orhan: 'Orhan Mahallesi',
+  akbal: 'Akbal Mahallesi',
+  kefken: 'Kefken Mahallesi',
+  kincilli: 'Kerpe Mahallesi',
+  cebeci: 'Cebeci Mahallesi',
+  bagirganli: 'Bağırganlı Mahallesi',
+  babali: 'Babalı Mahallesi',
+  kumcagiz: 'Kurtyeri Mahallesi',
+  kurtyeri: 'Kurtyeri Mahallesi',
+  seyrek: 'Pınarlı Mahallesi',
+  pinarli: 'Pınarlı Mahallesi',
+  sarisu: 'Doğancılı Mahallesi',
+  karaagac: 'Karaağaç Mahallesi',
+  kaymaz: 'Kaymaz Mahallesi',
+  camkonak: 'Çamkonak Mahallesi',
+  safali: 'Safalı Mahallesi',
+  sarniclar: 'Sarnıçlar Mahallesi',
+  dalca: 'Dalca Mahallesi',
+  sinanlibilalli: 'Sinanlıbilalli Mahallesi',
+  dongelli: 'Döngelli Mahallesi',
+  ballar: 'Ballar Mahallesi',
+  yusufca: 'Yusufça Mahallesi',
+  yagcilar: 'Yağcılar Mahallesi',
+  serefsungur: 'Şerefsungur Mahallesi',
+  mancarlar: 'Mancarlar Mahallesi',
+  akcabeyli: 'Akçabeyli Mahallesi',
+  bozburun: 'Bozburun Mahallesi',
+  goncaaydin: 'Goncaaydın Mahallesi',
+  deliveli: 'Deliveli Mahallesi',
+  lokmanli: 'Lokmanlı Mahallesi',
+  antapli: 'Antaplı Mahallesi',
+  baglica: 'Hacılar Mahallesi',
+  kirkarmut: 'Kırkarmut Mahallesi',
+};
+
+export interface IndexedOsmBoundary {
+  osmId: number;
+  name: string;
+  shortName: string;
+  geometry: Polygon | MultiPolygon;
+  bbox: { minLng: number; minLat: number; maxLng: number; maxLat: number };
+}
+
+export const INDEXED_OSM_NEIGHBORHOODS: IndexedOsmBoundary[] =
+  kandiraNeighborhoodsAdmin8GeoJSON.features.map((f) => {
+    const geom = f.geometry;
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+
+    const update = (lng: number, lat: number) => {
+      if (lng < minLng) minLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lng > maxLng) maxLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    };
+
+    if (geom.type === 'Polygon') {
+      for (const ring of geom.coordinates) {
+        for (const pt of ring) update(pt[0], pt[1]);
+      }
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates) {
+        for (const ring of poly) {
+          for (const pt of ring) update(pt[0], pt[1]);
+        }
+      }
+    }
+
+    return {
+      osmId: Number((f.properties as any)?.osm_id || 0),
+      name: String((f.properties as any)?.name || ''),
+      shortName: String((f.properties as any)?.short_name || ''),
+      geometry: geom,
+      bbox: { minLng, minLat, maxLng, maxLat },
+    };
+  });
+
+/**
+ * Converts a Polygon or MultiPolygon into a standardized MultiPolygon GeoJSON geometry.
+ */
+export function toMultiPolygon(geom: Polygon | MultiPolygon): MultiPolygon {
+  if (geom.type === 'MultiPolygon') {
+    return geom;
+  }
+  return {
+    type: 'MultiPolygon',
+    coordinates: [geom.coordinates],
+  };
+}
+
+/**
+ * Fast ray-casting algorithm to test if point [lng, lat] is inside ring [lng, lat][]
+ */
+export function pointInRing(pt: [number, number], ring: number[][]): boolean {
+  const [x, y] = pt;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Checks if point [lng, lat] is inside a Polygon geometry (outer ring minus holes)
+ */
+export function pointInPolygonGeometry(pt: [number, number], coords: number[][][]): boolean {
+  if (coords.length === 0) return false;
+  if (!pointInRing(pt, coords[0])) return false;
+  for (let i = 1; i < coords.length; i++) {
+    if (pointInRing(pt, coords[i])) return false;
+  }
+  return true;
+}
+
+/**
+ * Checks if point [lng, lat] is inside a Polygon or MultiPolygon geometry
+ */
+export function pointInGeometry(pt: [number, number], geom: Polygon | MultiPolygon): boolean {
+  if (geom.type === 'Polygon') {
+    return pointInPolygonGeometry(pt, geom.coordinates);
+  }
+  if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      if (pointInPolygonGeometry(pt, poly)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Finds the official OSM admin_level=8 boundary geometry for a neighborhood.
+ */
+export function getOfficialNeighborhoodGeometry(
+  neighborhood: NeighborhoodData
+): Polygon | MultiPolygon | undefined {
+  const targetName = NEIGHBORHOOD_TO_OSM_NAME[neighborhood.id];
+  if (targetName) {
+    const match = INDEXED_OSM_NEIGHBORHOODS.find((item) => item.name === targetName);
+    if (match) return match.geometry;
+  }
+
+  const cleanName = neighborhood.name.replace(/\s*\(.*?\)/, '').trim().toLowerCase();
+  const match = INDEXED_OSM_NEIGHBORHOODS.find(
+    (item) =>
+      item.shortName.toLowerCase() === cleanName ||
+      item.name.toLowerCase().startsWith(cleanName)
+  );
+  if (match) return match.geometry;
+
+  const [lng, lat] = neighborhood.coordinates;
+  const containing = INDEXED_OSM_NEIGHBORHOODS.find((item) => {
+    if (
+      lng < item.bbox.minLng ||
+      lng > item.bbox.maxLng ||
+      lat < item.bbox.minLat ||
+      lat > item.bbox.maxLat
+    ) {
+      return false;
+    }
+    return pointInGeometry([lng, lat], item.geometry);
+  });
+  return containing?.geometry;
+}
+
+/**
+ * Finds the application neighborhood whose official boundary polygon contains point [lng, lat].
+ */
+export function findNeighborhoodContainingPoint(
+  lng: number,
+  lat: number,
+  neighborhoods: NeighborhoodData[]
+): NeighborhoodData | undefined {
+  for (const n of neighborhoods) {
+    const geom = getOfficialNeighborhoodGeometry(n);
+    if (!geom) continue;
+    if (pointInGeometry([lng, lat], geom)) {
+      return n;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Checks which neighborhoods intersect an H3 cell by checking whether the cell centroid
+ * or any of its 6 boundary vertices fall within each neighborhood's official polygon.
+ */
+export function findNeighborhoodsIntersectingHex(
+  cellLng: number,
+  cellLat: number,
+  boundaryCoords: number[][],
+  neighborhoods: NeighborhoodData[],
+  fallbackNeighborhood: NeighborhoodData
+): NeighborhoodData[] {
+  const intersecting: NeighborhoodData[] = [];
+
+  for (const n of neighborhoods) {
+    const geom = getOfficialNeighborhoodGeometry(n);
+    if (!geom) continue;
+
+    // Fast check: centroid inside
+    if (pointInGeometry([cellLng, cellLat], geom)) {
+      intersecting.push(n);
+      continue;
+    }
+
+    // Check hexagon vertices
+    let vertexInside = false;
+    for (const pt of boundaryCoords) {
+      if (pointInGeometry([pt[0], pt[1]], geom)) {
+        vertexInside = true;
+        break;
+      }
+    }
+    if (vertexInside) {
+      intersecting.push(n);
+    }
+  }
+
+  if (intersecting.length === 0) {
+    return [fallbackNeighborhood];
+  }
+
+  return intersecting;
+}
 
 export function getYearData(
   neighborhood: NeighborhoodData,
@@ -251,8 +495,24 @@ export function generateKandiraH3GeoJSON(
 
   // If coverageMode === 'kontur_full', populate full Kandıra district polygon cells via polygonToCells
   if (coverageMode === 'kontur_full') {
-    const fullDistrictCells = polygonToCells(KANDIRA_DISTRICT_POLYGON, resolution);
-    const extraCells = new Set<string>(fullDistrictCells);
+    const extraCells = new Set<string>();
+
+    const officialGeom = kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
+    if (officialGeom && officialGeom.type === 'MultiPolygon') {
+      for (const poly of officialGeom.coordinates) {
+        if (poly.length > 0) {
+          const polyCells = polygonToCells(poly, resolution, true);
+          for (const c of polyCells) {
+            extraCells.add(c);
+          }
+        }
+      }
+    } else {
+      const fullDistrictCells = polygonToCells(KANDIRA_DISTRICT_POLYGON, resolution);
+      for (const c of fullDistrictCells) {
+        extraCells.add(c);
+      }
+    }
 
     if (customKonturMap) {
       for (const customH3 of customKonturMap.keys()) {
@@ -269,16 +529,28 @@ export function generateKandiraH3GeoJSON(
       if (isInBlackSea(cellLat, cellLng)) continue;
       if (cellLng < 30.0 || cellLng > 30.42 || cellLat < 40.93 || cellLat > 41.2) continue;
 
-      let closestNeighborhood = neighborhoods[0];
+      // Point-in-Polygon check to find which official neighborhood polygon contains this cell centroid
+      const containingNeighborhood = findNeighborhoodContainingPoint(
+        cellLng,
+        cellLat,
+        neighborhoods
+      );
+
+      let closestNeighborhood = containingNeighborhood ?? neighborhoods[0];
       let minDistanceKm = Infinity;
 
-      for (const n of neighborhoods) {
-        const [nLng, nLat] = n.coordinates;
-        const dKm = greatCircleDistance([nLat, nLng], [cellLat, cellLng], UNITS.km);
-        if (dKm < minDistanceKm) {
-          minDistanceKm = dKm;
-          closestNeighborhood = n;
+      if (!containingNeighborhood) {
+        for (const n of neighborhoods) {
+          const [nLng, nLat] = n.coordinates;
+          const dKm = greatCircleDistance([nLat, nLng], [cellLat, cellLng], UNITS.km);
+          if (dKm < minDistanceKm) {
+            minDistanceKm = dKm;
+            closestNeighborhood = n;
+          }
         }
+      } else {
+        const [nLng, nLat] = containingNeighborhood.coordinates;
+        minDistanceKm = greatCircleDistance([nLat, nLng], [cellLat, cellLng], UNITS.km);
       }
 
       const decay = Math.max(
@@ -351,28 +623,30 @@ export function generateKandiraH3GeoJSON(
       ? 'kontur_hdx_2023'
       : 'kandira_adnks_cbs';
 
-    // Calculate distance to all neighborhoods to detect overlapping/border neighborhoods
-    const [cellLat, cellLng] = cellToLatLng(h3Index);
-    const distances = neighborhoods.map((n) => {
-      const [nLng, nLat] = n.coordinates;
-      const dKm = greatCircleDistance([nLat, nLng], [cellLat, cellLng], UNITS.km);
-      return { n, dKm };
-    });
-    distances.sort((a, b) => a.dKm - b.dKm);
+    // cellToBoundary(h3Index, true) returns [lng, lat][] vertices for GeoJSON
+    const rawCoords = cellToBoundary(h3Index, true);
+    const boundaryCoords =
+      rawCoords.length > 0 &&
+      (rawCoords[0][0] !== rawCoords[rawCoords.length - 1][0] ||
+        rawCoords[0][1] !== rawCoords[rawCoords.length - 1][1])
+        ? [...rawCoords, rawCoords[0]]
+        : rawCoords;
 
-    const closestDist = distances[0].dKm;
-    const overlapping = distances.filter((item, idx) => {
-      if (idx === 0) return true;
-      if (item.n.id === neighborhood.id) return true;
-      const diffKm = item.dKm - closestDist;
-      return (diffKm <= 1.8 && item.dKm <= 4.8) || (item.dKm <= closestDist * 1.5 && item.dKm <= 3.8);
-    });
+    // Accurate Point-in-Polygon intersection for cell centroid and hexagon vertices
+    const [cellLat, cellLng] = cellToLatLng(h3Index);
+    const pipIntersecting = findNeighborhoodsIntersectingHex(
+      cellLng,
+      cellLat,
+      boundaryCoords,
+      neighborhoods,
+      neighborhood
+    );
 
     const neighborhoodNames = Array.from(
-      new Set([neighborhood.name, ...overlapping.map((o) => o.n.name)])
+      new Set([neighborhood.name, ...pipIntersecting.map((o) => o.name)])
     );
     const zones = Array.from(
-      new Set([neighborhood.zone, ...overlapping.map((o) => o.n.zone)])
+      new Set([neighborhood.zone, ...pipIntersecting.map((o) => o.zone)])
     );
 
     const seasonalWorkersEst = Math.max(
@@ -383,15 +657,6 @@ export function generateKandiraH3GeoJSON(
       0,
       Math.round(neighborhood.vulnerableGroups.socialAssistanceHouseholds * cellShare)
     );
-
-    // cellToBoundary(h3Index, true) returns [lng, lat][] vertices for GeoJSON
-    const rawCoords = cellToBoundary(h3Index, true);
-    const boundaryCoords =
-      rawCoords.length > 0 &&
-      (rawCoords[0][0] !== rawCoords[rawCoords.length - 1][0] ||
-        rawCoords[0][1] !== rawCoords[rawCoords.length - 1][1])
-        ? [...rawCoords, rawCoords[0]]
-        : rawCoords;
 
     features.push({
       type: 'Feature',
@@ -753,35 +1018,36 @@ export function getDistrictSummaryMetrics(
 
 /**
  * Generates GeoJSON MultiPolygon boundary features for all Kandıra neighborhoods
- * by dissolving the constituent H3 cells assigned to each neighborhood.
+ * using the real official OpenStreetMap admin_level=8 cadastral geometries.
  */
 export function generateKandiraNeighborhoodBoundariesGeoJSON(
   neighborhoods: NeighborhoodData[],
   h3Features?: Feature<Polygon, H3CellProperties>[]
 ): FeatureCollection<MultiPolygon, NeighborhoodBoundaryProperties> {
-  const features = h3Features ?? generateKandiraH3GeoJSON(neighborhoods, 2025, 8).features;
-
-  const cellsByNeighborhood = new Map<string, string[]>();
-  for (const f of features) {
-    const nId = f.properties.neighborhoodId;
-    if (!cellsByNeighborhood.has(nId)) {
-      cellsByNeighborhood.set(nId, []);
+  const cellCounts = new Map<string, number>();
+  if (h3Features) {
+    for (const f of h3Features) {
+      const nId = f.properties.neighborhoodId;
+      cellCounts.set(nId, (cellCounts.get(nId) || 0) + 1);
     }
-    cellsByNeighborhood.get(nId)!.push(f.properties.h3Index);
   }
 
   const boundaryFeatures: Feature<MultiPolygon, NeighborhoodBoundaryProperties>[] = [];
 
   for (const n of neighborhoods) {
-    const cells = cellsByNeighborhood.get(n.id) || [];
-    let coords: number[][][][] = [];
-    if (cells.length > 0) {
-      coords = cellsToMultiPolygon(cells, true);
-    }
+    const count = cellCounts.get(n.id) || 1;
+    const officialGeom = getOfficialNeighborhoodGeometry(n);
 
-    if (!coords || coords.length === 0) {
+    let multiPoly: MultiPolygon;
+    if (officialGeom) {
+      multiPoly = toMultiPolygon(officialGeom);
+    } else {
       const fallbackCell = latLngToCell(n.coordinates[1], n.coordinates[0], 8);
-      coords = cellsToMultiPolygon([fallbackCell], true);
+      const coords = cellsToMultiPolygon([fallbackCell], true);
+      multiPoly = {
+        type: 'MultiPolygon',
+        coordinates: coords,
+      };
     }
 
     boundaryFeatures.push({
@@ -795,12 +1061,9 @@ export function generateKandiraNeighborhoodBoundariesGeoJSON(
         zoneLabel: n.zoneLabel,
         areaKm2: n.areaKm2,
         centerCoordinates: n.coordinates,
-        cellCount: cells.length,
+        cellCount: count,
       },
-      geometry: {
-        type: 'MultiPolygon',
-        coordinates: coords,
-      },
+      geometry: multiPoly,
     });
   }
 
@@ -812,15 +1075,19 @@ export function generateKandiraNeighborhoodBoundariesGeoJSON(
 
 /**
  * Generates the outer administrative boundary of Kandıra district
- * by merging all constituent H3 cells into a unified perimeter MultiPolygon.
+ * using the real official OpenStreetMap admin_level=6 district perimeter MultiPolygon.
  */
 export function generateKandiraDistrictBoundaryGeoJSON(
   neighborhoods: NeighborhoodData[],
-  h3Features?: Feature<Polygon, H3CellProperties>[]
+  _h3Features?: Feature<Polygon, H3CellProperties>[]
 ): FeatureCollection<MultiPolygon, DistrictBoundaryProperties> {
-  const features = h3Features ?? generateKandiraH3GeoJSON(neighborhoods, 2025, 8).features;
-  const allCells = features.map((f) => f.properties.h3Index);
-  const districtCoords = cellsToMultiPolygon(allCells, true);
+  const officialGeom = kandiraDistrictAdmin6GeoJSON.features[0]?.geometry;
+  const multiPoly: MultiPolygon = officialGeom
+    ? toMultiPolygon(officialGeom)
+    : {
+        type: 'MultiPolygon',
+        coordinates: [],
+      };
 
   return {
     type: 'FeatureCollection',
@@ -836,10 +1103,7 @@ export function generateKandiraDistrictBoundaryGeoJSON(
           totalAreaKm2: neighborhoods.reduce((sum, n) => sum + n.areaKm2, 0),
           totalNeighborhoods: neighborhoods.length,
         },
-        geometry: {
-          type: 'MultiPolygon',
-          coordinates: districtCoords,
-        },
+        geometry: multiPoly,
       },
     ],
   };
